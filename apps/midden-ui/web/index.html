@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'">
+  <title>Midden</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body data-route="sessions">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="topbar">
+    <a class="brand" href="#/sessions">Midden</a>
+    <span id="workspace" class="pill" title="">Loading workspace...</span>
+    <span class="spacer"></span>
+    <a id="modelChip" class="chip" href="#/models">Model loading...</a>
+    <button id="quitApp" class="quit" type="button">Quit Midden</button>
+  </header>
+  <div id="notice" class="notice" role="alert" hidden><span id="noticeText"></span><button id="retryApp" type="button">Reload Midden</button><button id="dismissNotice" type="button" aria-label="Dismiss notification">Dismiss</button></div>
+  <section id="stopped" class="stopped" role="status" hidden><h1>Midden has stopped</h1><p>You can close this tab. To use Midden again, start it from its Start entry or run midden-ui.</p></section>
+  <div class="layout">
+    <nav class="side" aria-label="Main">
+      <span class="nav-label" aria-hidden="true">Work</span>
+      <a href="#/sessions" data-nav="sessions">Sessions</a>
+      <a href="#/sources" data-nav="sources">Sources</a>
+      <a href="#/files" data-nav="files">Files</a>
+      <a href="#/assistant" data-nav="assistant">Assistant</a>
+      <span class="grow" aria-hidden="true"></span>
+      <a href="#/models" data-nav="models">Models</a>
+    </nav>
+    <main id="main" tabindex="-1">
+      <section id="view-sessions" class="view" data-view="sessions" aria-label="Sessions" hidden></section>
+      <section id="view-evidence" class="view" data-view="evidence" aria-label="Evidence" hidden></section>
+      <section id="view-sources" class="view" data-view="sources" aria-label="Sources" hidden></section>
+      <section id="view-files" class="view files-view" data-view="files" aria-label="Files" hidden>
+        <div class="view-heading"><h1>Files</h1><p class="sub">Your workspace: ordinary files you can open anywhere. Previews are read-only.</p></div>
+        <div class="files-layout">
+          <aside id="filesPane" class="files-pane" aria-label="Workspace files">
+            <div class="pane-heading"><h2>Workspace files <span id="fileCount" class="count"></span></h2><button id="refreshFiles" class="compact" type="button" aria-label="Refresh files">Refresh</button></div>
+            <p id="filesError" class="error" role="alert" hidden></p>
+            <ul id="fileList" class="file-list"><li class="quiet">Loading files...</li></ul>
+          </aside>
+          <div class="files-detail">
+            <p id="fileEmpty" class="file-empty">Choose a file to inspect it.<br>Drafts and delivered artifacts appear here.</p>
+            <section id="filePreview" class="file-preview" aria-label="Selected file" hidden>
+              <h3 id="fileName"></h3><p id="fileMeta" class="quiet"></p>
+              <div class="file-actions"><button id="expandPreview" type="button" disabled>Expand preview</button><button id="downloadFile" type="button">Download</button><button id="reviseFile" type="button">Ask for a revision</button></div>
+              <p id="previewHint" class="quiet"></p><pre id="fileContent"></pre>
+              <iframe id="fileFrame" title="Sandboxed artifact preview" sandbox="allow-scripts" referrerpolicy="no-referrer" hidden></iframe>
+              <details class="fingerprint"><summary>SHA-256 fingerprint</summary><code id="fileHash"></code></details>
+            </section>
+            <div id="quoteCheck"></div>
+          </div>
+        </div>
+      </section>
+      <section id="view-assistant" class="view assistant-view" data-view="assistant" aria-label="Assistant" hidden>
+        <p id="appNotice" class="app-notice" role="note" aria-label="Assistant notice" hidden></p>
+        <div id="modelSetupNotice" class="setup-notice" role="alert" hidden><strong>Model setup needed</strong><p id="modelSetupError"></p></div>
+        <div class="assistant-layout">
+          <aside id="sessionsPane" class="sessions-pane" aria-label="Conversations">
+            <div class="pane-heading"><h2>Conversations <span id="sessionCount" class="count"></span></h2><button id="refreshSessions" class="compact" type="button" aria-label="Refresh conversations">Refresh</button></div>
+            <button id="newSession" class="new-session" type="button" aria-label="New conversation" disabled><span aria-hidden="true">+</span> New conversation</button>
+            <nav id="sessionList" class="session-list" aria-label="Conversation list"><p class="quiet">Loading conversations...</p></nav>
+            <details class="skills"><summary>Skills the assistant uses</summary><ul id="skills"><li>Loading skills...</li></ul></details>
+          </aside>
+          <div id="chatPane" class="chat-pane">
+            <div class="chat-heading"><div><p class="eyebrow">Conversation</p><h1 id="sessionTitle">New conversation</h1></div><div class="turn-info"><span id="turnStatus" role="status">Loading...</span><button id="setupModel" class="compact" type="button" hidden>Set up model</button><button id="activeSession" class="compact" type="button" hidden>Open active conversation</button><button id="deleteSession" class="compact danger" type="button" hidden>Delete conversation</button></div></div>
+            <div id="chatScroll" class="chat-scroll">
+              <div id="welcome" class="welcome">
+                <p class="eyebrow">Investigation, articles, presentations, long-form</p>
+                <h2>Start with what<br>you want to do.</h2>
+                <p>Ask what's worth explaining, develop a draft, or turn your sources into something you can share.</p>
+                <p class="quiet">Pick sessions or sources first and use “Use in chat” to hand them over. Work stays in ordinary files in your files folder. The assistant writes files and runs commands there without asking first.</p>
+              </div>
+              <p id="sessionLoading" class="quiet" role="status" hidden>Loading conversation...</p>
+              <p id="sessionError" class="error" role="alert" hidden></p>
+              <div id="messages" role="log" aria-label="Conversation messages" aria-live="off"></div>
+              <details id="activity" class="activity" hidden><summary id="activitySummary">Tool activity</summary><div id="activityList"></div></details>
+            </div>
+            <form id="composer" class="composer">
+              <div id="contextTray" class="context-tray" hidden>
+                <div id="contextChips" class="row" aria-label="Context for the next message"></div>
+                <button id="contextPreviewToggle" class="link" type="button" aria-expanded="false" aria-controls="contextPreview">Preview what's sent</button>
+                <pre id="contextPreview" class="context-preview" hidden></pre>
+              </div>
+              <label class="sr-only" for="message">Message</label>
+              <textarea id="message" name="message" rows="3" placeholder="Ask for findings, an article, a talk, or a revision..." aria-describedby="composerHelp" required disabled></textarea>
+              <div id="draftState" class="draft-state" hidden><small id="draftStatus" role="status"></small><button id="retryDrafts" type="button" class="compact" hidden>Retry draft save</button></div>
+              <div class="composer-actions"><small id="composerHelp">Enter for a new line. Ctrl/Cmd + Enter to send.</small><button id="stop" class="danger" type="button" hidden>Stop</button><button id="send" class="primary" type="submit" disabled>Send</button></div>
+            </form>
+          </div>
+        </div>
+      </section>
+      <section id="view-models" class="view" data-view="models" aria-label="Models" hidden></section>
+    </main>
+  </div>
+  <footer class="footer"><span id="versions">Loading versions...</span><span id="connection" class="connection" role="status">Connecting...</span></footer>
+  <dialog id="previewDialog" class="preview-dialog" aria-labelledby="previewTitle">
+    <div class="dialog-heading"><h2 id="previewTitle">File preview</h2><button id="closePreview" type="button">Close preview</button></div>
+    <p id="previewError" class="error" role="alert" hidden></p>
+    <pre id="expandedText"></pre><iframe id="expandedFrame" title="Expanded sandboxed artifact preview" sandbox="allow-scripts" referrerpolicy="no-referrer" hidden></iframe>
+  </dialog>
+  <p id="announcement" class="sr-only" role="status"></p>
+  <noscript>Midden needs JavaScript to reach the App running on this computer.</noscript>
+</body>
+</html>

@@ -1,0 +1,118 @@
+name: Validate core, bundle and installer
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos-installer:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Exercise the complete installer with stock macOS tools
+        run: python -B -m unittest discover -s tests/bootstrap -p test_unix.py -v
+  core-and-install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/midden-ui/go.mod
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Full deterministic core validation
+        run: |
+          go test ./... -count=1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $modules = go list -deps -f '{{if not .Standard}}{{.Module.Path}}{{with .Module.Replace}} => {{.Path}}{{end}}{{end}}' ./cmd/midden
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $approved = @(
+            'github.com/kayiik/midden'
+            'github.com/dustin/go-humanize'
+            'github.com/gomarkdown/markdown'
+            'github.com/google/uuid'
+            'github.com/mattn/go-isatty'
+            'github.com/ncruces/go-strftime'
+            'github.com/remyoudompheng/bigfft'
+            'golang.org/x/sys'
+            'modernc.org/libc'
+            'modernc.org/mathutil'
+            'modernc.org/memory'
+            'modernc.org/sqlite'
+          )
+          if (@($modules | Where-Object { $_ -and $_ -cnotin $approved }).Count -ne 0) {
+            throw 'Core depends on a module outside its approved dependency set'
+          }
+      - name: Installer and release behaviour
+        run: |
+          python -B -m unittest discover -s tests/release -p "test_*.py" -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $installer = if ($IsWindows) { 'test_powershell.py' } else { 'test_unix.py' }
+          python -B -m unittest discover -s tests/bootstrap -p $installer -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Independent native products
+        run: |
+          $target = if ($IsWindows) { 'windows/amd64' } else { 'linux/amd64' }
+          $release = Join-Path $env:RUNNER_TEMP 'midden-products'
+          python -B scripts/build-release.py --out $release --targets $target
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B scripts/verify-release.py --directory $release --commit $env:GITHUB_SHA --smoke
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --exit-code
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: midden-products-${{ runner.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/midden-products/*
+          if-no-files-found: error
+          retention-days: 14
+  bundle-rendering:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install declared rendering dependency on the disposable runner
+        # This usually takes under a minute, but apt on the runner has stalled
+        # silently until the job's limit, so each try is limited and retried.
+        run: |
+          for attempt in 1 2 3; do
+            if ! timeout 90 sudo apt-get update -qq; then
+              echo "::warning::apt-get update did not finish (try $attempt)"
+            elif timeout 150 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq pandoc; then
+              exit 0
+            else
+              echo "::warning::apt-get install pandoc did not finish (try $attempt)"
+              sudo dpkg --configure -a || true
+            fi
+          done
+          exit 1
+      - name: Install declared HTML inspection dependency
+        run: |
+          python -m pip install playwright==1.63.0
+          python -m playwright install --with-deps chromium --only-shell
+      - name: Render and inspect synthetic outcome artifacts
+        run: python -B -m unittest discover -s tests/bundles -p "test_*.py" -v
