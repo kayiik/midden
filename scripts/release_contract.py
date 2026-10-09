@@ -58,21 +58,21 @@ PANDOC_NOTICE = (
 COMPA_VERSION = "0.0.1"
 COMPA_RELEASE = f"https://github.com/kayiik/compa/releases/download/v{COMPA_VERSION}/"
 COMPA_ARCHIVES = {
-    "windows/amd64": ("compa_0.0.1_windows_amd64.zip", "a765593c2aeb2a6dca381b261a00d6b18c75a1b4ad81a098c671fe3f770c9ecb",
-                      "6fc1b7b7603e85eba4617ad81612298f95e00ac5b4e66ffb1a7354821e4f334d"),
-    "windows/arm64": ("compa_0.0.1_windows_arm64.zip", "7bd1ecafe3fd9d1bc1db240b2a218915fd06847431ba5bbeba7fdc12a145b872",
-                      "4b6e646dae818c946d6196f457aaadf8acdf002fa8184efe10d0385913c7bf54"),
-    "linux/amd64": ("compa_0.0.1_linux_amd64.tar.gz", "0382fd08f56ff751ad2edcaf6001475b30d975508f55281947acac1b51eee5ee",
-                    "63ef9127fc32d56b2205d1de76f388fa35b640519ccc0fe047e2faea4237856b"),
-    "linux/arm64": ("compa_0.0.1_linux_arm64.tar.gz", "ed8ad9a7fa309f70e16e78afca9278b3df7b0b45f0cdbbc512711d38596aa4ad",
-                    "f9513342772d0add26f2dcadf92bd60cc74ba6a0770450498db0f012f928f49c"),
-    "darwin/amd64": ("compa_0.0.1_darwin_amd64.tar.gz", "f9cd602025abd4810c1863fdfdfdb8ea519f3376440cf0a23eb6828da27281a6",
-                     "56423e4fd2e22ccacd8a5bff1de05b60da5ce83bc8f70179a6a74ed67f5876b3"),
-    "darwin/arm64": ("compa_0.0.1_darwin_arm64.tar.gz", "7061f127203b73a155baed1c45a434ac5e2d82f90ae3f534311e35ec53a59da5",
-                     "872d1ba6413e524af5ab47df90852696d19849ee6b456ff7ce8a65d700d9e791"),
+    "windows/amd64": ("compa_0.0.1_windows_amd64.zip", "6f03a6a9a600e3a2203626934130483b7b3b4e03385480cdb36051ef8c13a9fe",
+                      "2cce714fcb41407dc8fdfdbb4cd213ad096b082b13916c1f85a2f581cd897a03"),
+    "windows/arm64": ("compa_0.0.1_windows_arm64.zip", "855f598c7f7c8aacb81b6f265883479b0426056214e5adffde330daaa79cf04e",
+                      "c30c73a6961b9981f32f855d07196aeb7a5e36c1b30f9ba07f6ebec34ca40ad3"),
+    "linux/amd64": ("compa_0.0.1_linux_amd64.tar.gz", "a47de233e1f75f92b6ae8080727a839ad91d19ae3dea5bdafcd618bdf0a22619",
+                    "a3df6064859409fb21f5bd1abc70241fce8cd739372a3bfc8ec1cbd2e07ad394"),
+    "linux/arm64": ("compa_0.0.1_linux_arm64.tar.gz", "dfbeca13c25f39eec84deb54c1af8623d77d7ba82e811b2a43aa2195ffc8ffa8",
+                    "e17555f48e87d6a89856f767483e7a287eaa66a8317da7e83f63b3a6f21d0c2c"),
+    "darwin/amd64": ("compa_0.0.1_darwin_amd64.tar.gz", "01230fde08b74abaed83373d009746eed66ec10d008dee483e478b49c98ef8c6",
+                     "cefddaa9824acc17df77f6c7ec3f8429c80d09165e89156fd8c26709c905e93f"),
+    "darwin/arm64": ("compa_0.0.1_darwin_arm64.tar.gz", "46f14928df11e32b07c50c962c31ad0a74495c0d49a306296bff365ba16cc143",
+                     "efe6e5a58c643202276a9b400940d7bc6c5828b1d74879aca5f936e6fc8bfe4a"),
 }
-COMPA_TEXTS = (("LICENSE", "app/compa/LICENSE", "b8329fedd3025e2d099a0c539eaa21b346905253bd2f5169badb3adb8afa6197"),
-               ("NOTICE", "app/compa/NOTICE", "5fc15c83b3aa4678b173073dca8561c6eeb1cdf78623936ffcc7aceb1e907195"))
+COMPA_TEXTS = (("LICENSE", "app/compa/LICENSE", "4373e3ecad19c9f494f5faee7e02c4595e64344714e40eb21e34dbfba231a02f"),
+               ("NOTICE", "app/compa/NOTICE", "65d2feac59096d8a88c46bc3e5417c42a3ff1664578926994ca4543ed09ca56f"))
 COMPA_NOTICE = (
     "\nShipped unchanged from Compa's own release, with its LICENSE and NOTICE in app/compa:\n"
     "Compa \u2014 https://github.com/kayiik/compa \u2014 MIT License\n"
