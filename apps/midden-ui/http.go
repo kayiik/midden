@@ -145,7 +145,7 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/api/events" && r.Method == "GET":
 		a.serveEvents(w, r)
 	case r.URL.Path == "/api/quit" && r.Method == "POST":
-		a.serveQuit(w)
+		a.serveQuit(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/core/"):
 		a.serveCore(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/models/"):
@@ -216,8 +216,11 @@ func decode(w http.ResponseWriter, r *http.Request, value any) bool {
 }
 
 // serveQuit answers, then stops the App as Ctrl+C does: the server closes, a
-// running turn is cancelled and the kernel stops.
-func (a *App) serveQuit(w http.ResponseWriter) {
+// running turn is cancelled and the kernel stops. It reads the request first:
+// a connection closed with unread bytes is reset, and the client would lose
+// the answer.
+func (a *App) serveQuit(w http.ResponseWriter, r *http.Request) {
+	io.Copy(io.Discard, http.MaxBytesReader(w, r.Body, 128<<10))
 	if a.quit == nil {
 		apiError(w, http.StatusConflict, "this Midden cannot be stopped from the page")
 		return

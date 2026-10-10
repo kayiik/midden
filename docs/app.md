@@ -150,6 +150,9 @@ Model settings can't change while a turn runs.
 - It is Compa's agent, named Midden. For each request it reads the skill
   that fits and follows it: investigation, article, presentation or
   long-form. See [the skills](skills.md).
+- Its model must support tool calling. If the model refuses tools, the turn
+  fails with a message saying so instead of answering without them; in a
+  route, the next model takes the turn.
 - It runs `midden` and has Pandoc 3.12, so it can make HTML slides, HTML
   books and EPUB. The App includes no browser or Python, so PDF and the
   screenshot check depend on what your computer has.
