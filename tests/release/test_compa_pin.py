@@ -40,6 +40,11 @@ class CompaPinTests(unittest.TestCase):
         self.assertIn(f"\nCompa \u2014 https://github.com/kayiik/compa \u2014 MIT License\n", contract.COMPA_NOTICE)
         self.assertIn(f"compa-kernel {contract.COMPA_VERSION}", contract.COMPA_NOTICE)
 
+    def test_the_notice_says_the_kernel_is_distributed_under_the_gpl_with_its_source(self):
+        # compa-kernel links go.mau.fi/libsignal (GPL-3.0).
+        self.assertIn("compa-kernel is distributed under the GPL-3.0", contract.COMPA_NOTICE)
+        self.assertIn(f"Its source is the v{contract.COMPA_VERSION} tag of Compa's repository", contract.COMPA_NOTICE)
+
 
 if __name__ == "__main__":
     unittest.main()

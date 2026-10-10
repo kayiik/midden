@@ -77,6 +77,8 @@ COMPA_NOTICE = (
     "\nShipped unchanged from Compa's own release, with its LICENSE and NOTICE in app/compa:\n"
     "Compa \u2014 https://github.com/kayiik/compa \u2014 MIT License\n"
     f"app/compa-kernel is compa-kernel {COMPA_VERSION}. The licenses of the modules compiled into it are above.\n"
+    "It links go.mau.fi/libsignal, which is licensed under the GPL-3.0, so compa-kernel is distributed under the GPL-3.0. "
+    f"Its source is the v{COMPA_VERSION} tag of Compa's repository, with the modules above at the versions shown.\n"
 )
 
 
