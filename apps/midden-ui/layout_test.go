@@ -178,6 +178,17 @@ func TestAgentInstructionsSayWhereAndInWhichShellCommandsRun(t *testing.T) {
 	}
 }
 
+// The skills run midden and write files, so a model that refuses tool calls
+// must fail the turn rather than answer without them.
+func TestAgentInstructionsRequireAModelThatTakesToolCalls(t *testing.T) {
+	for _, goos := range []string{"windows", "darwin"} {
+		frontmatter, _, _ := strings.Cut(strings.TrimPrefix(agentInstructions(goos), "---\n"), "\n---\n")
+		if !strings.Contains("\n"+frontmatter+"\n", "\nrequireTools: true\n") {
+			t.Fatalf("%s: the frontmatter does not require tools: %q", goos, frontmatter)
+		}
+	}
+}
+
 func TestSkillsAreListedFromTheirFrontmatter(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, filepath.Join(dir, "midden-b", "SKILL.md"), "---\nname: midden-b\ndescription: \"Use when B.\"\n---\n# B\n")

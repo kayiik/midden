@@ -9,16 +9,22 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
 // kernelModel answers like an OpenAI-compatible model for the real kernel:
-// a turn whose text asks for a tool calls exec once, a "slow" turn waits, and
-// anything else answers at once.
-func kernelModel(t *testing.T) *httptest.Server {
+// a turn whose text asks for a tool calls exec once, a "slow" turn waits, a
+// "TEXTONLY" turn is refused while tools are offered, and anything else
+// answers at once. system returns the last system prompt it was sent.
+func kernelModel(t *testing.T) (server *httptest.Server, system func() string) {
 	t.Helper()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var (
+		mu     sync.Mutex
+		prompt string
+	)
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/models" {
 			w.Header().Set("Content-Type", "application/json")
 			fmt.Fprint(w, `{"object":"list","data":[{"id":"fixture","object":"model"}]}`)
@@ -30,6 +36,11 @@ func kernelModel(t *testing.T) *httptest.Server {
 			Tools    []any            `json:"tools"`
 		}
 		json.NewDecoder(r.Body).Decode(&request)
+		if len(request.Messages) > 0 && request.Messages[0]["role"] == "system" {
+			mu.Lock()
+			prompt = fmt.Sprint(request.Messages[0]["content"])
+			mu.Unlock()
+		}
 		last := 0
 		for i, message := range request.Messages {
 			if message["role"] == "user" {
@@ -41,6 +52,12 @@ func kernelModel(t *testing.T) *httptest.Server {
 			if message["role"] == "tool" {
 				results = append(results, fmt.Sprint(message["content"]))
 			}
+		}
+		if strings.Contains(user, "TEXTONLY") && len(request.Tools) > 0 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"error":{"message":"This model does not support tools.","type":"invalid_request_error"}}`)
+			return
 		}
 		if strings.Contains(user, "slow") {
 			select {
@@ -76,7 +93,11 @@ func kernelModel(t *testing.T) *httptest.Server {
 		json.NewEncoder(w).Encode(map[string]any{"choices": []any{choice}})
 	}))
 	t.Cleanup(server.Close)
-	return server
+	return server, func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		return prompt
+	}
 }
 
 func TestTheAppDrivesTheRealKernel(t *testing.T) {
@@ -84,7 +105,7 @@ func TestTheAppDrivesTheRealKernel(t *testing.T) {
 	if executable == "" {
 		t.Skip("set MIDDEN_TEST_KERNEL to a compa-kernel 0.0.1 executable to run the App against it")
 	}
-	model := kernelModel(t)
+	model, system := kernelModel(t)
 	opts := testOptions(t)
 	opts.Kernel, opts.KernelVersion = executable, "0.0.1"
 	opts.Skills = filepath.Join(t.TempDir(), "skills")
@@ -137,6 +158,12 @@ func TestTheAppDrivesTheRealKernel(t *testing.T) {
 	if session.Outcomes[0].Status != "completed" || !strings.Contains(session.Messages[len(session.Messages)-1].Content, "kernel-check") {
 		t.Fatalf("tool turn = %+v %+v", session.Outcomes, session.Messages)
 	}
+	// The kernel introduces the agent with AGENT.md's name and description,
+	// once.
+	if prompt := system(); !strings.Contains(prompt, "You are Midden, the Midden App's assistant: you investigate recorded AI sessions") ||
+		strings.Count(prompt, "You are Midden") != 1 {
+		t.Fatalf("system prompt = %q", prompt)
+	}
 
 	if _, err := app.StartTurn(s.ID, "slow question"); err != nil {
 		t.Fatal(err)
@@ -166,6 +193,16 @@ func TestTheAppDrivesTheRealKernel(t *testing.T) {
 	waitEvent(t, events, func(e Event) bool { return e.Type == "turn_done" })
 	if session, _ = app.Session(s.ID); session.Outcomes[2].Status != "completed" || session.Messages[len(session.Messages)-1].Content != "Plain answer." {
 		t.Fatalf("turn after reload = %+v", session.Outcomes[2])
+	}
+	// The agent requires tools: a model that refuses them fails the turn
+	// instead of answering without them.
+	if _, err := app.StartTurn(s.ID, "TEXTONLY question"); err != nil {
+		t.Fatal(err)
+	}
+	waitEvent(t, events, func(e Event) bool { return e.Type == "turn_done" })
+	if session, _ = app.Session(s.ID); session.Outcomes[3].Status != "failed" || !strings.Contains(session.Outcomes[3].Error, "requires them") ||
+		session.Messages[len(session.Messages)-1].Content == "Plain answer." {
+		t.Fatalf("turn with a model that refuses tools = %+v, last message %+v", session.Outcomes[3], session.Messages[len(session.Messages)-1])
 	}
 	// The agent reads the installed skills, but not the kernel's own settings.
 	read := func(path string) string {

@@ -96,6 +96,9 @@ midden read --tool claude --session SESSION_ID
 ## License
 
 Midden is under the [MIT License](LICENSE). The App includes Compa's
-`compa-kernel`, unchanged, under Compa's MIT License, and its installer
-downloads Pandoc (GPL-2.0-or-later) from Pandoc's own release. See
-[NOTICE](NOTICE).
+`compa-kernel`, unchanged. Compa is under the MIT License, but
+`compa-kernel` links go.mau.fi/libsignal, which is under the GPL-3.0, so
+the App distributes `compa-kernel` under the GPL-3.0. Its source is
+[Compa's repository](https://github.com/kayiik/compa) at the release the App
+pins. The installer downloads Pandoc (GPL-2.0-or-later) from Pandoc's own
+release. See [NOTICE](NOTICE).
