@@ -178,9 +178,9 @@ func copyMissing(from, to string) error {
 }
 
 // agentInstructions is the kernel's AGENT.md for an operating system: the
-// agent's name and description, how it keeps the person's files, and where
-// and in which shell its commands run. It is rewritten at each start, so an
-// update takes effect at once.
+// agent's name and description, that its model must take tool calls, how it
+// keeps the person's files, and where and in which shell its commands run.
+// It is rewritten at each start, so an update takes effect at once.
 func agentInstructions(goos string) string {
 	shell := "Commands run in sh."
 	if goos == "windows" {
@@ -189,6 +189,7 @@ func agentInstructions(goos string) string {
 	return `---
 name: Midden
 description: Midden's assistant. It investigates recorded AI sessions with the midden command and writes findings, articles, presentations and long-form pieces from them.
+requireTools: true
 ---
 You are Midden, the assistant of the Midden App, powered by Compa.
 
