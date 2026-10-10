@@ -110,26 +110,32 @@ func TestAConversationWithARunningTurnIsNotDeleted(t *testing.T) {
 
 func TestQuitInThePageStopsTheApp(t *testing.T) {
 	app := newTestApp(t)
-	quit := func(csrf bool) *httptest.ResponseRecorder {
-		request := httptest.NewRequest("POST", "http://127.0.0.1:18890/api/quit", strings.NewReader("{}"))
+	quit := func(csrf bool) (*httptest.ResponseRecorder, *strings.Reader) {
+		body := strings.NewReader("{}")
+		request := httptest.NewRequest("POST", "http://127.0.0.1:18890/api/quit", body)
 		if csrf {
 			request.Header.Set("X-Midden-CSRF", app.csrf)
 		}
 		recorder := httptest.NewRecorder()
 		app.ServeHTTP(recorder, keyed(app, request))
-		return recorder
+		return recorder, body
 	}
-	if reply := quit(true); reply.Code != http.StatusConflict {
+	if reply, _ := quit(true); reply.Code != http.StatusConflict {
 		t.Fatalf("quit with no way to stop: %d %s", reply.Code, reply.Body)
 	}
 	stopped := make(chan struct{})
 	app.quit = func() { close(stopped) }
-	if reply := quit(false); reply.Code != http.StatusForbidden {
+	if reply, _ := quit(false); reply.Code != http.StatusForbidden {
 		t.Fatalf("quit without the page's token: %d", reply.Code)
 	}
-	reply := quit(true)
+	reply, body := quit(true)
 	if reply.Code != http.StatusAccepted || !strings.Contains(reply.Body.String(), `"stopping":true`) {
 		t.Fatalf("quit: %d %s", reply.Code, reply.Body)
+	}
+	// A connection closed with unread bytes is reset, so a client that asks
+	// to close it after the request gets the answer only if it was all read.
+	if body.Len() != 0 {
+		t.Fatalf("quit answered with %d bytes of the request unread", body.Len())
 	}
 	select {
 	case <-stopped:
