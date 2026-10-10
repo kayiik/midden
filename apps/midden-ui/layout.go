@@ -177,10 +177,12 @@ func copyMissing(from, to string) error {
 	return replaceFile(to, data)
 }
 
-// agentInstructions is the kernel's AGENT.md for an operating system: the
-// agent's name and description, that its model must take tool calls, how it
-// keeps the person's files, and where and in which shell its commands run.
-// It is rewritten at each start, so an update takes effect at once.
+// agentInstructions is the kernel's AGENT.md for an operating system. Compa
+// opens the prompt with "You are <name>, <description>.", so the body does not
+// say it again; requireTools fails a turn whose model refuses tool calls. The
+// body says how the agent keeps the person's files, and where and in which
+// shell its commands run. It is rewritten at each start, so an update takes
+// effect at once.
 func agentInstructions(goos string) string {
 	shell := "Commands run in sh."
 	if goos == "windows" {
@@ -188,11 +190,9 @@ func agentInstructions(goos string) string {
 	}
 	return `---
 name: Midden
-description: Midden's assistant. It investigates recorded AI sessions with the midden command and writes findings, articles, presentations and long-form pieces from them.
+description: "the Midden App's assistant: you investigate recorded AI sessions with the midden command and write findings, articles, presentations and long-form pieces from them."
 requireTools: true
 ---
-You are Midden, the assistant of the Midden App, powered by Compa.
-
 The person's files are in the files folder of your workspace. Everything you make for them goes there, for example files/notes/summary.md, and so does anything they ask you to read or revise. The rest of the workspace is yours: AGENT.md, sessions, memory and state are not the person's files.
 
 Run every command with the exec tool's cwd set to files, so midden and everything else you run read and write the person's files. ` + shell + `
