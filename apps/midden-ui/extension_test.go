@@ -54,10 +54,11 @@ func newFakeExtensionService(t *testing.T) *fakeExtensionService {
 			OAuthMethods: []oauthflow.Method{oauthflow.MethodBrowser, oauthflow.MethodDevice, oauthflow.MethodManual}},
 		{ID: "provider-b", Name: "Provider B", Surfaces: chat, Credential: extension.CredentialNone},
 		{ID: "provider-c", Surfaces: chat, Credential: extension.CredentialToken},
-		// Midden cannot use these: a browser-only sign-in, and no surface
-		// llmgw-core defines.
+		// Midden cannot use these: a browser-only sign-in, no surface
+		// llmgw-core defines, and no chat.
 		{ID: "provider-d", Surfaces: chat, HasOAuth: true, Credential: extension.CredentialOAuth, OAuthMethods: []oauthflow.Method{oauthflow.MethodBrowser}},
 		{ID: "provider-e", Surfaces: []core.ModelSurface{"smell"}, Credential: extension.CredentialNone},
+		{ID: "provider-f", Name: "Provider F", Surfaces: []core.ModelSurface{core.ModelSurfaceAudioSpeech}, Credential: extension.CredentialNone},
 	}}
 	fake.Server = httptest.NewServer(http.HandlerFunc(fake.serve))
 	t.Cleanup(fake.Close)
@@ -593,6 +594,43 @@ func TestExtensionReconnectFollowsTheServiceProviders(t *testing.T) {
 	reply = callExtras(t, app, &bodies, http.MethodPost, "/api/models/extension/ext-provider-c/token", map[string]any{"token": fakePastedToken})
 	expectStatus(t, reply, http.StatusConflict)
 	assertNoSecrets(t, app, bodies)
+}
+
+// A provider that can't chat, such as text-to-speech, is neither connected
+// nor listed. One an earlier Midden connected is hidden, and goes with its
+// model list when the service is connected again.
+func TestExtensionProvidersThatCannotChatAreLeftOut(t *testing.T) {
+	app := extensionTestApp(t)
+	fake := newFakeExtensionService(t)
+	speech := string(core.ModelSurfaceAudioSpeech)
+	earlier := &providerInstance{ID: "ext-provider-f", ProviderKind: extensionProviderKind, Adapter: adapterExtension,
+		Protocol: speech, Endpoint: fake.URL, State: instanceEnabled,
+		Settings: map[string]any{settingExtensionProvider: "provider-f", settingExtensionCredential: "none",
+			settingDisplayName: "Provider F", settingExtensionSurfaces: []string{speech}}}
+	if err := app.updateModelConfig(context.Background(), func(cfg *kernelConfig) error {
+		cfg.Extension = &extensionDaemon{URL: fake.URL}
+		cfg.Instances = append(cfg.Instances, earlier)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveInstanceCatalog(app.paths.Kernel, earlier, []catalogModel{{ID: "voice-1", Surfaces: []string{speech}}}); err != nil {
+		t.Fatal(err)
+	}
+	if state, err := app.modelState(); err != nil || len(state.Instances) != 0 {
+		t.Fatalf("listed = %+v, %v", state.Instances, err)
+	}
+
+	reply := connectFakeService(t, app, fake, nil)
+	if strings.Contains(reply.body, "provider-f") || strings.Contains(reply.body, "Provider F") {
+		t.Fatalf("the answer shows the provider that can't chat: %s", reply.body)
+	}
+	if extensionInstanceIndex(modelConfigOf(t, app), "ext-provider-f") >= 0 {
+		t.Fatal("connecting the service again kept the provider that can't chat")
+	}
+	if models := catalogModels(t, app, "ext-provider-f"); len(models) != 0 {
+		t.Fatalf("its model list was kept: %v", models)
+	}
 }
 
 func TestExtensionServiceURLMustBeAPlainHTTPAddress(t *testing.T) {

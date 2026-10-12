@@ -150,12 +150,14 @@ func extensionInstanceID(provider string) string {
 
 // extensionSupport returns a service provider's credential kind and the
 // sign-in methods Midden completes for it, and whether Midden can use it: it
-// must have a usable id, serve a surface llmgw-core defines, declare its
-// credential and, when it needs a sign-in, offer one Midden completes.
+// must have a usable id, serve chat on a surface llmgw-core defines, declare
+// its credential and, when it needs a sign-in, offer one Midden completes.
+// Providers that can't chat, such as text-to-speech, wait for a feature that
+// uses them.
 func extensionSupport(info extension.ProviderInfo) (kind string, methods []string, ok bool) {
 	kind, methods = string(info.CredentialKind()), []string{}
 	if !extensionProviderIDPattern.MatchString(info.ID) || info.ID == "info" ||
-		extensionInstanceID(info.ID) == "" || extensionSurface(info) == "" {
+		extensionInstanceID(info.ID) == "" || extensionSurface(info) == "" || !servesChat(extensionSurfaces(info)) {
 		return kind, methods, false
 	}
 	switch extension.CredentialKind(kind) {
@@ -369,17 +371,20 @@ func (a *App) serveExtensionConnect(w http.ResponseWriter, r *http.Request) {
 // instance keeps its state and credential while its provider asks for the
 // same kind on the same service; otherwise its credential is dropped and the
 // keys returned for removal. A provider the service no longer serves stays
-// configured but disabled. Selections of disabled instances, and of models a
-// reloaded list lacks, are dropped.
+// configured but disabled; one it serves that Midden can't use goes, with its
+// model list and credential. Selections of disabled instances, and of models
+// a reloaded list lacks, are dropped.
 func (a *App) extensionReconcile(ctx context.Context, cfg *kernelConfig, endpoint string, info extension.InfoResponse) ([]string, error) {
 	cfg.Extension = &extensionDaemon{URL: endpoint}
 	var stale []string
 	served := map[string]bool{}
+	listed := map[string]bool{}
 	disabled := map[string]bool{}
 	var keyless []*providerInstance
 	for _, provider := range info.Providers {
 		kind, _, ok := extensionSupport(provider)
 		id := extensionInstanceID(provider.ID)
+		listed[id] = true
 		if !ok || served[id] {
 			continue
 		}
@@ -424,6 +429,21 @@ func (a *App) extensionReconcile(ctx context.Context, cfg *kernelConfig, endpoin
 		}
 		if kind == string(extension.CredentialNone) {
 			keyless = append(keyless, instance)
+		}
+	}
+	var unusable []string
+	cfg.Instances = slices.DeleteFunc(cfg.Instances, func(instance *providerInstance) bool {
+		if instance.extensionProvider() == "" || served[instance.ID] || !listed[instance.ID] {
+			return false
+		}
+		unusable = append(unusable, instance.ID)
+		return true
+	})
+	for _, id := range unusable {
+		disabled[id] = true
+		stale = append(stale, extensionCredentialKeys(id)...)
+		if err := deleteInstanceCatalog(a.paths.Kernel, id); err != nil {
+			return nil, fmt.Errorf("delete the model list of %s: %w", id, err)
 		}
 	}
 	for _, instance := range cfg.Instances {

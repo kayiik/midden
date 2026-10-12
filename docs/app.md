@@ -137,7 +137,8 @@ The assistant needs a model you connect here:
   lists the provider's models with your key and makes the first one the
   default if you have none.
 - **From an extension service** connects the providers of a separate service
-  you run, including providers you sign in to.
+  you run, including providers you sign in to. Midden lists the ones that can
+  chat; others, such as text-to-speech, are left out for now.
 - **Test tool calling** checks that a model returns a tool call, which the
   skills need. It sends one request with a harmless tool and reads no files.
 - **Routes** list several models in order: if one is busy or fails, the next
