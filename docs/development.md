@@ -67,6 +67,9 @@ The installer tests use synthetic releases and isolated profiles. The test
 suites need no network; the build scripts download Compa, and
 `smoke-bootstrap.py` downloads Pandoc.
 
+[Testing](testing.md) says what each kind of test is for and when the slow
+runs are needed.
+
 CI also checks that Core depends only on approved modules (the list is in
 `.github/workflows/validate.yml`), and that builds leave the working tree
 unchanged.
