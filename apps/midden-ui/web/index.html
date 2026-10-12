@@ -47,8 +47,8 @@
             <p id="fileEmpty" class="file-empty">Choose a file to inspect it.<br>Drafts and delivered artifacts appear here.</p>
             <section id="filePreview" class="file-preview" aria-label="Selected file" hidden>
               <h3 id="fileName"></h3><p id="fileMeta" class="quiet"></p>
-              <div class="file-actions"><button id="expandPreview" type="button" disabled>Expand preview</button><button id="downloadFile" type="button">Download</button><button id="reviseFile" type="button">Ask for a revision</button></div>
-              <p id="previewHint" class="quiet"></p><pre id="fileContent"></pre>
+              <div class="file-actions"><button id="expandPreview" type="button" disabled>Expand preview</button><button id="toggleSource" type="button" aria-pressed="false" hidden>Show source</button><button id="downloadFile" type="button">Download</button><button id="reviseFile" type="button">Ask for a revision</button></div>
+              <p id="previewHint" class="quiet"></p><pre id="fileContent"></pre><div id="fileMarkdown" class="md file-md" hidden></div>
               <iframe id="fileFrame" title="Sandboxed artifact preview" sandbox="allow-scripts" referrerpolicy="no-referrer" hidden></iframe>
               <details class="fingerprint"><summary>SHA-256 fingerprint</summary><code id="fileHash"></code></details>
             </section>
@@ -101,7 +101,7 @@
   <dialog id="previewDialog" class="preview-dialog" aria-labelledby="previewTitle">
     <div class="dialog-heading"><h2 id="previewTitle">File preview</h2><button id="closePreview" type="button">Close preview</button></div>
     <p id="previewError" class="error" role="alert" hidden></p>
-    <pre id="expandedText"></pre><iframe id="expandedFrame" title="Expanded sandboxed artifact preview" sandbox="allow-scripts" referrerpolicy="no-referrer" hidden></iframe>
+    <pre id="expandedText"></pre><div id="expandedMarkdown" class="md file-md" hidden></div><iframe id="expandedFrame" title="Expanded sandboxed artifact preview" sandbox="allow-scripts" referrerpolicy="no-referrer" hidden></iframe>
   </dialog>
   <p id="announcement" class="sr-only" role="status"></p>
   <noscript>Midden needs JavaScript to reach the App running on this computer.</noscript>
