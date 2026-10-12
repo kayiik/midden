@@ -596,6 +596,37 @@ func TestExtensionReconnectFollowsTheServiceProviders(t *testing.T) {
 	assertNoSecrets(t, app, bodies)
 }
 
+// A refused connection says why: no secret, a wrong one, or no answer. The
+// service's own words, which may repeat the secret, are left out.
+func TestExtensionServiceSaysWhyItRefusedTheConnection(t *testing.T) {
+	app := extensionTestApp(t)
+	fake := newFakeExtensionService(t)
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closed.Close()
+	var bodies []string
+	for _, c := range []struct {
+		body map[string]any
+		want string
+	}{
+		{map[string]any{"url": fake.URL}, "the extension service needs a secret"},
+		{map[string]any{"url": fake.URL, "secret": wrongSecret}, "the extension service refused the secret"},
+		{map[string]any{"url": closed.URL, "secret": fakeServiceSecret}, "could not reach the extension service"},
+	} {
+		reply := callExtras(t, app, &bodies, http.MethodPut, "/api/models/extension", c.body)
+		expectStatus(t, reply, http.StatusBadGateway)
+		if message, _ := reply.value["error"].(string); !strings.HasPrefix(message, c.want) {
+			t.Fatalf("refused connection = %q, want %q", message, c.want)
+		}
+	}
+	for _, body := range bodies {
+		for _, secret := range fakeSecrets {
+			if strings.Contains(body, secret) {
+				t.Fatalf("an answer carries %q: %s", secret, body)
+			}
+		}
+	}
+}
+
 // A provider that can't chat, such as text-to-speech, is neither connected
 // nor listed. One an earlier Midden connected is hidden, and goes with its
 // model list when the service is connected again.
