@@ -96,7 +96,8 @@ long-form request.
 
 ### Files
 
-Everything in your files folder. Text files preview as plain text. HTML files
+Everything in your files folder. Markdown files preview formatted, and **Show
+source** shows their text; other text files preview as plain text. HTML files
 preview in an isolated frame that runs their scripts but blocks the network.
 Other files can be downloaded. **Ask for a revision** hands a file to the
 assistant.
@@ -111,6 +112,10 @@ Conversations with the assistant. Give it context with **Use in chat** on a
 session, evidence, a collection or a file; **Preview what's sent** shows
 exactly what is added to your message. Send with Ctrl+Enter (Cmd+Enter on
 macOS).
+
+Your messages show as you typed them. The assistant's replies are formatted:
+headings, lists, tables, code and links, which open in a new tab. A turn that
+fails, is stopped or is interrupted says so after the reply.
 
 One turn runs at a time across the App. **Stop** cancels the turn; files it
 already wrote stay. **Tool activity** lists the tools the assistant used in
@@ -137,7 +142,8 @@ The assistant needs a model you connect here:
   lists the provider's models with your key and makes the first one the
   default if you have none.
 - **From an extension service** connects the providers of a separate service
-  you run, including providers you sign in to.
+  you run, including providers you sign in to. Midden lists the ones that can
+  chat; others, such as text-to-speech, are left out for now.
 - **Test tool calling** checks that a model returns a tool call, which the
   skills need. It sends one request with a harmless tool and reads no files.
 - **Routes** list several models in order: if one is busy or fails, the next

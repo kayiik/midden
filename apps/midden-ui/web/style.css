@@ -219,8 +219,10 @@ body[data-route="assistant"] main { overflow: hidden; padding: 0; display: flex;
 .message { margin-bottom: 22px; padding: 0 2px; }
 .message header { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: .73rem; margin-bottom: 8px; }
 .message header strong { color: var(--green); }
-.message pre { font-family: inherit; font-size: .95rem; line-height: 1.7; }
-.message.user { border: 1px solid #cfe1d6; background: var(--green-soft); border-radius: 12px 12px 3px 12px; padding: 14px 18px; }
+.message > pre { font-family: inherit; font-size: .95rem; line-height: 1.7; }
+.message > .md { font-size: .95rem; line-height: 1.7; }
+/* The person's messages sit on the right; Midden's replies and turn statuses on the left. */
+.message.user { margin-left: auto; width: fit-content; min-width: min(100%, 240px); max-width: min(85%, 640px); border: 1px solid #cfe1d6; background: var(--green-soft); border-radius: 12px 12px 3px 12px; padding: 12px 16px; }
 .activity { margin: 16px auto 0; max-width: 800px; padding: 8px 14px; border: 1px solid var(--line); border-radius: 10px; background: #f7f8f2; }
 .tool, .permission { border-top: 1px solid var(--line); padding: 10px 0; font-size: .85rem; }
 .tool pre, .permission pre { margin: 7px 0; max-height: 180px; overflow: auto; }
@@ -243,7 +245,7 @@ body[data-route="assistant"] main { overflow: hidden; padding: 0; display: flex;
 .draft-state { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .draft-state small { flex: 1; font-size: .72rem; }
 .storage-error { color: #8a3526; }
-.turn-outcome { border-left: 3px solid #a86e2c; background: #fff5e5; padding: 10px 12px; margin-top: 12px; font-size: .83rem; }
+.turn-outcome { border-left: 3px solid #a86e2c; background: #fff5e5; padding: 10px 12px; margin: 0 0 22px; border-radius: 0 8px 8px 0; font-size: .83rem; }
 .turn-outcome[data-status="running"] { border-color: var(--green); background: #e6eee0; }
 .turn-outcome strong, .turn-outcome small { display: block; }
 .turn-outcome p { margin-top: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -251,6 +253,35 @@ body[data-route="assistant"] main { overflow: hidden; padding: 0; display: flex;
 .composer-actions { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
 .composer-actions small { flex: 1; font-size: .72rem; }
 .composer-actions .primary { min-width: 78px; }
+
+/* Formatted text: the assistant's replies and Markdown files */
+:where(.md) :where(p, ul, ol, pre, blockquote, hr, h3, h4, h5, h6, .table) { margin: 0; }
+.md { overflow-wrap: anywhere; }
+.md > * + *, .md blockquote > * + * { margin-top: .7em; }
+.md > :is(h3, h4, h5, h6):not(:first-child) { margin-top: 1.2em; }
+.md li > * + * { margin-top: .3em; }
+.md li + li { margin-top: .2em; }
+.md h3, .md h4, .md h5, .md h6 { font-family: inherit; font-weight: 650; line-height: 1.3; }
+.md h3 { font-size: 1.25em; }
+.md h4 { font-size: 1.12em; }
+.md h5 { font-size: 1em; }
+.md h6 { font-size: .95em; color: var(--muted); }
+.md ul, .md ol { padding-left: 1.5em; }
+.md li.task { list-style: none; }
+.md li.task > input { width: auto; min-height: 0; margin: 0 .5em 0 -1.4em; vertical-align: -.1em; }
+.md code { font-size: .88em; padding: .1em .35em; border: 1px solid var(--line); border-radius: 5px; background: var(--soft); }
+.md pre { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: #f6f7f2; overflow-x: auto; }
+.md pre code { padding: 0; border: 0; background: none; font-size: .84rem; white-space: pre; overflow-wrap: normal; }
+.md blockquote { padding-left: 12px; border-left: 3px solid #cfd8cc; color: var(--muted); }
+.md hr { border: 0; border-top: 1px solid var(--line); }
+.md .table { overflow-x: auto; }
+.md table { width: auto; max-width: 100%; font-size: .92em; }
+.md th, .md td { padding: 5px 10px; border: 1px solid var(--line); text-align: left; vertical-align: top; overflow-wrap: normal; }
+.md th { color: var(--ink); background: var(--soft); font-size: inherit; font-weight: 650; text-transform: none; letter-spacing: 0; }
+.md [data-align="center"] { text-align: center; }
+.md [data-align="right"] { text-align: right; }
+.file-md { border: 1px solid var(--line); padding: 14px 18px; background: #fcfcf9; border-radius: 7px; max-height: 52dvh; overflow: auto; font-size: .92rem; line-height: 1.65; }
+.preview-dialog .file-md { max-height: 72dvh; }
 
 @media (max-width: 1200px) {
   .grid2 { grid-template-columns: minmax(0, 1fr) 300px; }

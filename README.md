@@ -79,6 +79,7 @@ midden read --tool claude --session SESSION_ID
 - [The skills](docs/skills.md)
 - [The `midden` command](docs/core.md)
 - [Development and releases](docs/development.md)
+- [Testing](docs/testing.md)
 
 ## Privacy
 
