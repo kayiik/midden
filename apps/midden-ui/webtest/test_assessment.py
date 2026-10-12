@@ -213,7 +213,7 @@ class AssessmentTests(BrowserCase):
         expect(self.page.locator("#draftStatus")).to_contain_text("saved on this device")
         self.assertIn("Keep this text", self.page.evaluate("JSON.stringify(localStorage)"))
 
-    def test_terminal_outcomes_are_durable_host_evidence_beside_user_messages(self):
+    def test_terminal_outcomes_are_durable_host_evidence_on_middens_side(self):
         session = self.host.sessions["s1"]
         session["messages"] = [{"role": "user", "content": f"Synthetic request {index}."} for index in range(4)]
         session["messages"].append({"role": "assistant", "content": "Authored response."})
@@ -223,12 +223,15 @@ class AssessmentTests(BrowserCase):
             for index, status in enumerate(("failed", "cancelled", "interrupted", "completed"))
         ]
         self.open()
+        # Each status follows its turn, before the person's next message.
+        follows = self.page.locator("#messages > .user + .turn-outcome")
+        expect(follows).to_have_count(3)
         for index, label in enumerate(("Failed", "Cancelled", "Interrupted")):
-            expect(self.page.locator("#messages .user").nth(index).locator(".turn-outcome")).to_contain_text(f"Turn status: {label}")
-        expect(self.page.locator("#messages .turn-outcome")).to_have_count(3)
-        expect(self.page.locator("#messages .assistant pre")).to_have_text("Authored response.")
+            expect(follows.nth(index)).to_contain_text(f"Turn status: {label}")
+        expect(self.page.locator("#messages .user .turn-outcome")).to_have_count(0)
+        expect(self.page.locator("#messages .assistant .md")).to_have_text("Authored response.")
         self.page.reload()
-        expect(self.page.locator("#messages .turn-outcome").nth(2)).to_contain_text("Synthetic host interruption")
+        expect(follows.nth(2)).to_contain_text("Synthetic host interruption")
 
     def test_replayed_error_is_scoped_and_a_current_failure_survives_reload(self):
         self.host.sessions["s1"]["messages"] = [{"role": "user", "content": "Current request."}]
@@ -251,10 +254,10 @@ class AssessmentTests(BrowserCase):
         expect(self.page.locator("#turnStatus")).to_contain_text("Working")
         expect(self.page.locator("#messages")).not_to_contain_text("Earlier synthetic failure")
         self.host.emit("error", turnId="current", error="Current synthetic failure")
-        expect(self.page.locator("#messages .user .turn-outcome")).to_contain_text("Current synthetic failure")
+        expect(self.page.locator("#messages > .turn-outcome")).to_contain_text("Current synthetic failure")
         self.host.replay.clear()
         self.page.reload()
-        expect(self.page.locator("#messages .user .turn-outcome")).to_contain_text("Current synthetic failure")
+        expect(self.page.locator("#messages > .turn-outcome")).to_contain_text("Current synthetic failure")
         self.page.get_by_role("button", name="Earlier conversation", exact=False).click()
         expect(self.page.locator("#messages .turn-outcome")).to_contain_text("Earlier synthetic failure")
         expect(self.page.locator("#notice")).not_to_be_visible()

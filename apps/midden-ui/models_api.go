@@ -278,6 +278,11 @@ func (a *App) modelState() (modelState, error) {
 			RequiresAPIKey: item.RequiresAPIKey, RequiresBaseURL: item.RequiresBaseURL, Keyless: item.Keyless})
 	}
 	for _, instance := range cfg.Instances {
+		// An extension provider that can't chat stays out of sight until a
+		// feature uses it; connecting its service again removes it.
+		if instance.extensionProvider() != "" && !servesChat(instance.extensionSurfaces()) {
+			continue
+		}
 		state.Instances = append(state.Instances, a.instanceViewOf(instance, roster, catalogs, checks[instance.ID]))
 	}
 	for _, route := range cfg.Routes {

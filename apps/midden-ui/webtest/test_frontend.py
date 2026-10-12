@@ -526,7 +526,7 @@ class FrontendTests(BrowserCase):
         self.start_turn()
         self.host.emit("delta", text="A")
         self.host.emit("delta", text="A complete draft.")
-        expect(self.page.locator("#messages .assistant pre")).to_have_text("A complete draft.")
+        expect(self.page.locator("#messages .assistant .md")).to_have_text("A complete draft.")
         self.host.emit("tool", tool="read_file", status="running", arguments={"path": "draft & notes.txt"})
         for pid in ("p1", "p2"):
             self.host.emit("permission", permissionId=pid, tool="write_file", arguments={"path": f"{pid}.txt"})
@@ -550,7 +550,7 @@ class FrontendTests(BrowserCase):
         self.host.emit("message", text="A complete draft.")
         self.host.emit("turn_done")
         expect(self.page.locator("#turnStatus")).to_contain_text("Ready")
-        expect(self.page.locator("#messages .assistant pre")).to_have_text("A complete draft.")
+        expect(self.page.locator("#messages .assistant .md")).to_have_text("A complete draft.")
         self.host.emit("delta", text="Late stale output.")
         expect(self.page.locator("#messages")).not_to_contain_text("Late stale output.")
 
@@ -661,7 +661,7 @@ class FrontendTests(BrowserCase):
         try:
             self.page.get_by_role("button", name="Send", exact=True).click()
             self.wait_for_gate(gate)
-            expect(self.page.locator("#messages .assistant pre")).to_have_text("A fast response.")
+            expect(self.page.locator("#messages .assistant .md")).to_have_text("A fast response.")
             expect(self.page.get_by_label("Message", exact=True)).to_have_value("Give me a short explanation.")
             with self.api_response("POST", "/api/sessions/s1/turn", 202):
                 gate.release.set()
@@ -678,9 +678,9 @@ class FrontendTests(BrowserCase):
         self.host.emit("turn_done")
         expect(self.page.locator("#turnStatus")).to_contain_text("Ready")
         self.start_turn()
-        expect(self.page.locator("#messages .assistant pre")).to_have_count(1)
+        expect(self.page.locator("#messages .assistant .md")).to_have_count(1)
         self.host.emit("delta", turnId="t2", text="A different reply.")
-        expect(self.page.locator("#messages .assistant pre")).to_have_text(["The first reply.", "A different reply."])
+        expect(self.page.locator("#messages .assistant .md")).to_have_text(["The first reply.", "A different reply."])
 
     def test_live_updates_preserve_sidebar_keyboard_focus_and_render_chat_as_text(self):
         self.open()
@@ -853,6 +853,156 @@ class FrontendTests(BrowserCase):
         self.host.emit("conversations_changed", sessionId="", turnId="")
         expect(self.page.locator("#sessionList button")).to_have_count(1)
         expect(self.page.locator("#sessionTitle")).to_have_text("Earlier conversation")
+
+    def test_markdown_renders_its_constructs_as_text_and_safe_links(self):
+        self.open()
+        cases = [
+            ("Hello **world** and *you*", "<p>Hello <strong>world</strong> and <em>you</em></p>"),
+            ("## Findings", "<h4>Findings</h4>"),
+            ("### Title ###", "<h5>Title</h5>"),
+            ("- one\n- two\n  - nested", "<ul><li>one</li><li>two<ul><li>nested</li></ul></li></ul>"),
+            ("3. three\n4. four", '<ol start="3"><li>three</li><li>four</li></ol>'),
+            ("- [x] done\n- [ ] open", '<ul><li class="task"><input type="checkbox" disabled="" checked="">done</li>'
+                                       '<li class="task"><input type="checkbox" disabled="">open</li></ul>'),
+            ("**Scope:**\n- a", "<p><strong>Scope:</strong></p><ul><li>a</li></ul>"),
+            ("In\n2026. A year", "<p>In<br>2026. A year</p>"),
+            ('```go\nfmt.Println("<b>")\n```', '<pre><code>fmt.Println("&lt;b&gt;")</code></pre>'),
+            ("```\nstill arriving", "<pre><code>still arriving</code></pre>"),
+            ("Run `midden ls` <img src=x onerror=alert(1)>", "<p>Run <code>midden ls</code> &lt;img src=x onerror=alert(1)&gt;</p>"),
+            ("``a ` b``", "<p><code>a ` b</code></p>"),
+            ("| Tool | Sessions |\n|:---|---:|\n| claude | 3 |",
+             '<div class="table"><table><thead><tr><th data-align="left">Tool</th><th data-align="right">Sessions</th></tr></thead>'
+             '<tbody><tr><td data-align="left">claude</td><td data-align="right">3</td></tr></tbody></table></div>'),
+            ("[docs](https://example.invalid/a) and [bad](javascript:alert(1)) and https://example.invalid/b.",
+             '<p><a href="https://example.invalid/a" target="_blank" rel="noreferrer noopener">docs</a> and bad (javascript:alert(1)) and '
+             '<a href="https://example.invalid/b" target="_blank" rel="noreferrer noopener">https://example.invalid/b</a>.</p>'),
+            ("![chart](https://example.invalid/c.png) ![local](assets/d.png)",
+             '<p><a href="https://example.invalid/c.png" target="_blank" rel="noreferrer noopener">chart</a> local</p>'),
+            ("> quoted *text*\n\n---\n\nafter", "<blockquote><p>quoted <em>text</em></p></blockquote><hr><p>after</p>"),
+            ("line one\nline two", "<p>line one<br>line two</p>"),
+            ("snake_case_name and \\*literal\\* ~~gone~~", "<p>snake_case_name and *literal* <del>gone</del></p>"),
+            ("<script>alert(1)</script>", "<p>&lt;script&gt;alert(1)&lt;/script&gt;</p>"),
+            ("", ""),
+        ]
+        rendered = self.page.evaluate("""async texts => {
+            const { markdown } = await import("/js/markdown.js");
+            return texts.map(text => markdown(text).innerHTML);
+        }""", [text for text, _ in cases])
+        for (text, want), got in zip(cases, rendered):
+            self.assertEqual(got, want, text)
+        # Long and hostile texts render in time proportional to their length.
+        elapsed = self.page.evaluate("""async () => {
+            const { markdown } = await import("/js/markdown.js");
+            const text = ["*a ".repeat(40000), "[x".repeat(40000), "`".repeat(5000) + "a", "_b ".repeat(40000),
+                "> ".repeat(300) + "deep", Array.from({ length: 300 }, (_, i) => " ".repeat(i * 2) + "- level").join("\\n"),
+                "| a | b |\\n|---|---|\\n" + "| x | y |\\n".repeat(5000)].join("\\n\\n");
+            const started = performance.now();
+            markdown(text);
+            return performance.now() - started;
+        }""")
+        self.assertLess(elapsed, 3000, f"rendering took {elapsed:.0f} ms")
+
+    def test_replies_are_formatted_and_the_persons_messages_show_as_typed(self):
+        self.open()
+        self.page.get_by_label("Message", exact=True).fill("Keep **this** as typed")
+        with self.api_response("POST", "/api/sessions/s1/turn", 202):
+            self.page.get_by_label("Message", exact=True).press("Control+Enter")
+        expect(self.page.locator("#messages .user pre")).to_have_text("Keep **this** as typed")
+        reply = "## Findings\n\n- **Planted** error `E42`\n- See [the notes](https://example.invalid/notes)\n\n<img src=x onerror=alert(1)>"
+        self.host.emit("delta", text=reply)
+        expect(self.page.locator("#liveMessage .md h4")).to_have_text("Findings")
+        self.host.emit("message", text=reply)
+        self.host.emit("turn_done")
+        expect(self.page.locator("#liveMessage")).to_have_count(0)
+        answer = self.page.locator("#messages .assistant .md")
+        expect(answer.locator("h4")).to_have_text("Findings")
+        expect(answer.locator("li")).to_have_count(2)
+        expect(answer.locator("li strong")).to_have_text("Planted")
+        expect(answer.locator("code")).to_have_text("E42")
+        link = answer.get_by_role("link", name="the notes")
+        expect(link).to_have_attribute("href", "https://example.invalid/notes")
+        expect(link).to_have_attribute("target", "_blank")
+        expect(link).to_have_attribute("rel", "noreferrer noopener")
+        expect(answer).to_contain_text("<img src=x onerror=alert(1)>")
+        expect(self.page.locator("#messages img")).to_have_count(0)
+        expect(self.page.locator("#messages .user pre *")).to_have_count(0)
+        self.screenshot("chat-formatted.png")
+
+    def test_a_turns_status_follows_midden_and_the_persons_messages_sit_on_the_right(self):
+        self.open()
+        self.start_turn()
+        expect(self.page.locator('#messages > .user + .turn-outcome[data-status="running"]')).to_contain_text("Turn status: Running")
+        self.host.emit("delta", text="A partial reply.")
+        # The reply comes between the person's message and the turn's status.
+        expect(self.page.locator('#messages > .user + #liveMessage + .turn-outcome[data-status="running"]')).to_have_count(1)
+        column, user, status = (self.page.locator(selector).bounding_box() for selector in
+                                ("#messages", "#messages > .user", "#messages > .turn-outcome"))
+        self.assertAlmostEqual(user["x"] + user["width"], column["x"] + column["width"], delta=2)
+        self.assertGreater(user["x"], column["x"] + column["width"] * 0.1, "The person's message is a bubble on the right")
+        self.assertAlmostEqual(status["x"], column["x"], delta=2)
+        self.screenshot("chat-running.png")
+        self.host.emit("error", error="Synthetic model failure")
+        expect(self.page.locator('#messages > .user + #liveMessage + .turn-outcome[data-status="failed"]')).to_contain_text("Synthetic model failure")
+        expect(self.page.locator("#messages .user .turn-outcome")).to_have_count(0)
+
+    def test_markdown_files_preview_formatted_with_their_source_a_click_away(self):
+        self.host.contents["notes.md"] = "# Notes\n\n- **First** finding\n\n<img src=x onerror=alert(1)>"
+        self.original_files = dict(self.host.contents)
+        self.open("#/files")
+        self.page.get_by_role("button", name="notes.md", exact=False).click()
+        formatted = self.page.locator("#fileMarkdown")
+        expect(formatted.locator("h3")).to_have_text("Notes")
+        expect(formatted.locator("li strong")).to_have_text("First")
+        expect(self.page.locator("#fileContent")).to_be_hidden()
+        expect(self.page.locator("#previewHint")).to_contain_text("Formatted Markdown")
+        expect(self.page.locator("#filePreview img")).to_have_count(0)
+        source = self.page.get_by_role("button", name="Show source")
+        source.click()
+        expect(source).to_have_attribute("aria-pressed", "true")
+        expect(self.page.locator("#fileContent")).to_contain_text("- **First** finding")
+        expect(formatted).to_be_hidden()
+        source.click()
+        expect(formatted).to_be_visible()
+        self.page.get_by_role("button", name="Expand preview").click()
+        expect(self.page.locator("#expandedMarkdown h3")).to_have_text("Notes")
+        expect(self.page.locator("#expandedText")).to_be_hidden()
+        self.page.get_by_role("button", name="Close preview").click()
+        self.page.get_by_role("button", name="draft & notes.txt", exact=False).click()
+        expect(self.page.get_by_role("button", name="Show source")).to_be_hidden()
+        expect(self.page.locator("#fileContent")).to_contain_text("<img src=x onerror=alert(1)>")
+        expect(formatted).to_be_hidden()
+
+    def test_extension_connection_reports_beside_its_controls(self):
+        refused = "the extension service refused the secret; check it and connect again"
+        self.host.failures["PUT", "/api/models/extension"] = refused
+        self.open("#/models")
+        section = self.page.locator("section.section").filter(has=self.page.get_by_role("heading", name="From an extension service"))
+        section.get_by_label("Service address").fill("http://127.0.0.1:18889")
+        section.get_by_label("Secret").fill("synthetic-key-only")
+        with self.hold_api("PUT", "/api/models/extension") as gate:
+            section.get_by_role("button", name="Connect", exact=True).click()
+            self.wait_for_gate(gate)
+            expect(section.get_by_role("status")).to_have_text("Working...")
+            expect(section.get_by_role("button", name="Connect", exact=True)).to_be_disabled()
+            with self.api_response("PUT", "/api/models/extension", 409):
+                gate.release.set()
+        expect(section.locator(".error")).to_have_text(refused)
+        expect(self.page.locator("#view-models .status-message, #view-models .error")).to_have_count(1)
+        # What was typed stays for another try; the secret never enters the markup.
+        expect(section.get_by_label("Service address")).to_have_value("http://127.0.0.1:18889")
+        expect(section.get_by_label("Secret")).to_have_value("synthetic-key-only")
+        self.assertNotIn("synthetic-key-only", self.page.content())
+        del self.host.failures["PUT", "/api/models/extension"]
+        self.host.routes["PUT", "/api/models/extension"] = lambda *_: dict(
+            providers=[dict(instanceId="ext-a", provider="a", name="Synthetic chat", credential="none", ready=True, signInMethods=[])],
+            state=self.host.model_state())
+        with self.api_response("PUT", "/api/models/extension"):
+            section.get_by_role("button", name="Connect", exact=True).click()
+        expect(section.locator(".status-message")).to_have_text("Connected. 1 provider Midden can use.")
+        expect(section).to_contain_text("Synthetic chat")
+        expect(section.get_by_label("Secret")).to_have_value("")
+        sent = [call[2] for call in self.host.calls if call[:2] == ("PUT", "/api/models/extension")]
+        self.assertEqual(sent[-1], {"url": "http://127.0.0.1:18889", "secret": "synthetic-key-only"})
 
     def test_quit_stops_midden_after_confirming_and_says_how_to_start_it_again(self):
         self.open()

@@ -1,7 +1,7 @@
 import { el, button, chip, emptyState, errorBox, loading, dialog, field } from "/js/components.js";
 
 let root, ctx;
-const view = { state: null, error: "", busy: "", message: "", free: null, local: null, extension: null, flows: new Map(), route: null };
+const view = { state: null, error: "", busy: "", where: "", message: "", failed: false, free: null, local: null, extension: null, extensionTyped: null, flows: new Map(), route: null };
 const FREE_STATUS = { answers_text: ["Answers text", "ok"], connected: ["Lists models, didn't answer", ""], busy: ["Busy (rate limited), try later", "warn"], failed: ["Failed", "warn"] };
 const SOURCE = { free: "free", key: "API key", local: "local", extension: "extension" };
 // Messages from Midden never get to show back a secret the person just typed.
@@ -13,15 +13,29 @@ function targets(state) {
   return list;
 }
 
-async function act(label, work, secret = "") {
-  view.busy = label; view.message = ""; render();
+// act runs an action of the controls at where; its progress and what it
+// reports show there, not at the top of a long page.
+async function act(where, work, secret = "") {
+  view.busy = where; view.where = where; view.message = ""; view.failed = false; render();
   try {
     const result = await work();
     if (result?.state) view.state = result.state; else await reload(false);
     ctx.refreshStatus().catch(() => {});
     return result;
-  } catch (reason) { view.message = redact(reason.message, secret); return null; }
+  } catch (reason) { view.message = redact(reason.message, secret); view.failed = true; return null; }
   finally { view.busy = ""; render(); }
+}
+
+function report(where, message, failed = false) {
+  view.where = where; view.message = message; view.failed = failed;
+}
+
+// status is the running action, or the last message, of the controls at where;
+// a failure shows as an error.
+function status(where) {
+  if (view.busy === where) return loading("Working...");
+  if (!view.message || view.where !== where) return null;
+  return view.failed ? errorBox(view.message) : el("p", { class: "status-message", text: view.message, attrs: { role: "status" } });
 }
 
 async function reload(draw = true) {
@@ -37,11 +51,11 @@ function defaultSection(state) {
     el("option", { text: choices.length ? "Choose the model the assistant uses" : "Connect a model first", attrs: { value: "" } }),
     ...choices.map(choice => el("option", { text: choice.label, attrs: { value: choice.value } })));
   select.value = state.defaultModel || "";
-  const save = button("Use as default", { primary: true, disabled: !choices.length, onClick: () => act("default", () => ctx.api("/api/models/default", "PUT", { selection: select.value })) });
+  const save = button("Use as default", { primary: true, disabled: !choices.length || !!view.busy, onClick: () => act("default", () => ctx.api("/api/models/default", "PUT", { selection: select.value })) });
   return el("div", { class: "card" }, el("h2", { text: "Default model" }),
     el("p", { class: "sub", text: state.configured ? `The assistant uses ${state.defaultModel}.` : "No working default yet. Deterministic work (Sessions, Sources, Files) doesn't need one." }),
     state.setupError ? errorBox(state.setupError) : null,
-    el("div", { class: "filters" }, el("label", { class: "field grow" }, el("span", { text: "Default" }), select), save));
+    el("div", { class: "filters" }, el("label", { class: "field grow" }, el("span", { text: "Default" }), select), save), status("default"));
 }
 
 function checkChip(instance, model) {
@@ -51,16 +65,17 @@ function checkChip(instance, model) {
 }
 
 function instanceCard(instance, state) {
+  const where = `instance:${instance.id}`;
   const models = el("details", {}, el("summary", { text: `${instance.models.length} model${instance.models.length === 1 ? "" : "s"}` }),
     ...instance.models.slice(0, 200).map(model => {
       const target = `${instance.id}/${model.id}`;
       return el("div", { class: "model-row" }, el("span", { class: "mono grow", text: model.displayName ? `${model.displayName} (${model.id})` : model.id }), checkChip(instance, model),
-        button("Test tool calling", { small: true, link: true, onClick: () => act("check", async () => {
+        button("Test tool calling", { small: true, link: true, onClick: () => act(where, async () => {
           const result = await ctx.api(`/api/models/instances/${encodeURIComponent(instance.id)}/check`, "POST", { model: model.id });
           view.message = `${target}: ${result.message}`;
           return null;
         }) }),
-        state.defaultModel === target ? chip("default", "ok") : button("Use as default", { small: true, link: true, onClick: () => act("default", () => ctx.api("/api/models/default", "PUT", { selection: target })) }));
+        state.defaultModel === target ? chip("default", "ok") : button("Use as default", { small: true, link: true, onClick: () => act(where, () => ctx.api("/api/models/default", "PUT", { selection: target })) }));
     }));
   return el("div", { class: "card instance" },
     el("div", { class: "row" }, el("h2", { text: instance.label || instance.id }), chip(SOURCE[instance.source] || instance.source),
@@ -68,8 +83,9 @@ function instanceCard(instance, state) {
     el("p", { class: "sub mono", text: `${instance.id} · ${instance.endpoint || "default endpoint"}` }),
     models,
     el("div", { class: "row" },
-      button("Refresh models", { small: true, onClick: () => act("sync", () => ctx.api(`/api/models/instances/${encodeURIComponent(instance.id)}/sync`, "POST", {})) }),
-      instance.source === "extension" ? null : button("Remove", { small: true, onClick: () => act("remove", () => ctx.api(`/api/models/instances/${encodeURIComponent(instance.id)}`, "DELETE")) })));
+      button("Refresh models", { small: true, onClick: () => act(where, () => ctx.api(`/api/models/instances/${encodeURIComponent(instance.id)}/sync`, "POST", {})) }),
+      instance.source === "extension" ? null : button("Remove", { small: true, onClick: () => act(where, () => ctx.api(`/api/models/instances/${encodeURIComponent(instance.id)}`, "DELETE")) })),
+    status(where));
 }
 
 function freeSection() {
@@ -79,6 +95,7 @@ function freeSection() {
       const result = await ctx.api("/api/models/free", "POST", {});
       view.free = result; return result;
     }) }), el("span", { class: "sub", text: "Checks a few public services. Your prompts go to the service that answers." })),
+    status("free"),
     outcomes.length ? el("ul", { class: "list" }, ...outcomes.map(outcome => {
       const [label, kind] = FREE_STATUS[outcome.status] || [outcome.status, ""];
       return el("li", {}, el("span", { class: "grow" }, el("strong", { text: outcome.label || outcome.instanceId }), ` · ${outcome.models ? `${outcome.models} model${outcome.models === 1 ? "" : "s"}` : "no models"}`,
@@ -93,9 +110,10 @@ function localSection() {
     el("div", { class: "row" }, button("Find local model servers", { disabled: !!view.busy, onClick: () => act("local", async () => {
       view.local = await ctx.api("/api/models/local", "POST", {}); return null;
     }) }), el("span", { class: "sub", text: "Looks for Ollama, LM Studio, llama.cpp, vLLM, LocalAI and Jan on their usual local ports." })),
+    status("local"),
     servers ? (servers.length ? el("ul", { class: "list" }, ...servers.map(server => el("li", {},
       el("span", { class: "grow" }, el("strong", { text: server.label }), " at ", el("span", { class: "mono", text: server.endpoint }), ` · ${server.models.length} model${server.models.length === 1 ? "" : "s"}`),
-      server.connectedInstanceId ? chip("connected", "ok") : button("Connect", { small: true, onClick: () => act("connect", () => ctx.api("/api/models/instances", "POST", { providerKind: server.providerKind, endpoint: server.endpoint, label: server.label })) })))) :
+      server.connectedInstanceId ? chip("connected", "ok") : button("Connect", { small: true, onClick: () => act("local", () => ctx.api("/api/models/instances", "POST", { providerKind: server.providerKind, endpoint: server.endpoint, label: server.label })) })))) :
       el("p", { class: "quiet", text: "No local model server answered." })) : null);
 }
 
@@ -120,7 +138,7 @@ function connectDialog(entry) {
       const result = await ctx.api("/api/models/instances", "POST", body);
       key.value = ""; modal.close();
       if (result?.state) view.state = result.state; else await reload(false);
-      view.message = `Connected ${entry.label}.`; ctx.refreshStatus().catch(() => {}); render();
+      report("keys", `Connected ${entry.label}.`); ctx.refreshStatus().catch(() => {}); render();
     } catch (reason) { status.textContent = redact(reason.message, body.apiKey); save.disabled = false; }
   } });
   modal.actions.append(button("Cancel", { onClick: () => modal.close() }), save);
@@ -134,26 +152,37 @@ function keySection(state) {
       const connected = state.instances.some(instance => instance.providerKind === entry.id);
       return el("div", { class: "card prov-card" }, el("span", { text: entry.label }),
         connected ? chip("connected", "ok") : null, button("Connect", { small: true, onClick: () => connectDialog(entry) }));
-    })));
+    })), status("keys"));
 }
 
 function extensionSection(state) {
-  const url = el("input", { class: "mono", attrs: { value: state.extension.url || "http://127.0.0.1:18888", spellcheck: "false", "aria-label": "Service address" } });
+  // What the person typed stays until a connection succeeds; the secret is
+  // kept as the field's value, never in the page's markup.
+  const typed = view.extensionTyped;
+  const url = el("input", { class: "mono", attrs: { value: typed?.url ?? (state.extension.url || "http://127.0.0.1:18888"), spellcheck: "false", "aria-label": "Service address" } });
   const secret = el("input", { attrs: { type: "password", autocomplete: "new-password", placeholder: state.extension.connected ? "Unchanged" : "If the service needs one", "aria-label": "Secret" } });
+  secret.value = typed?.secret ?? "";
+  const keep = () => { view.extensionTyped = { url: url.value, secret: secret.value }; };
+  url.addEventListener("input", keep); secret.addEventListener("input", keep);
   const providers = view.extension?.providers || [];
-  const connect = button(state.extension.connected ? "Reconnect" : "Connect", { onClick: () => act("extension", async () => {
+  const connect = button(state.extension.connected ? "Reconnect" : "Connect", { disabled: !!view.busy, onClick: () => act("extension", async () => {
     const body = { url: url.value.trim() };
     if (secret.value) body.secret = secret.value;
     const result = await ctx.api("/api/models/extension", "PUT", body);
-    secret.value = ""; view.extension = result; return result;
+    view.extensionTyped = null; view.extension = result;
+    const count = result?.providers?.length || 0;
+    view.message = `Connected. ${count} provider${count === 1 ? "" : "s"} Midden can use.`;
+    return result;
   }, secret.value) });
   return el("section", { class: "section" }, el("h2", { text: "From an extension service" }),
-    el("p", { class: "sub", text: "Connect a separately running service that offers more model providers." }),
+    el("p", { class: "sub", text: "Connect a separately running service that offers more model providers. Midden lists the ones that can chat." }),
     el("div", { class: "filters" }, el("label", { class: "field" }, el("span", { text: "Service address" }), url),
       el("label", { class: "field" }, el("span", { text: "Secret" }), secret), connect,
-      state.extension.connected ? button("Disconnect", { small: true, link: true, onClick: () => act("extension", async () => {
-        const result = await ctx.api("/api/models/extension", "DELETE"); view.extension = null; return result;
+      state.extension.connected ? button("Disconnect", { small: true, link: true, disabled: !!view.busy, onClick: () => act("extension", async () => {
+        const result = await ctx.api("/api/models/extension", "DELETE"); view.extension = null; view.extensionTyped = null;
+        view.message = "Disconnected."; return result;
       }) }) : null),
+    status("extension"),
     providers.length ? el("ul", { class: "list" }, ...providers.map(provider => extensionProvider(provider))) :
       state.extension.connected ? el("p", { class: "quiet", text: "Connected. Use Reconnect to list its providers again." }) : null);
 }
@@ -164,7 +193,7 @@ function extensionProvider(provider) {
   if (provider.ready) return item;
   if (provider.credential === "token") {
     const token = el("input", { attrs: { type: "password", autocomplete: "new-password", placeholder: "Token", "aria-label": `Token for ${provider.name}` } });
-    item.append(token, button("Save token", { small: true, onClick: () => act("token", async () => {
+    item.append(token, button("Save token", { small: true, onClick: () => act("extension", async () => {
       const result = await ctx.api(`/api/models/extension/${encodeURIComponent(provider.instanceId)}/token`, "POST", { token: token.value });
       token.value = ""; provider.ready = true; return result;
     }, token.value) }));
@@ -199,7 +228,7 @@ async function startSignIn(provider, method) {
     const flow = await ctx.api(`/api/models/extension/${encodeURIComponent(provider.instanceId)}/signin`, "POST", { method });
     view.flows.set(provider.instanceId, flow); render();
     if (flow.userCode) poll(provider, flow);
-  } catch (reason) { view.message = reason.message; render(); }
+  } catch (reason) { report("extension", reason.message, true); render(); }
 }
 
 async function poll(provider, flow) {
@@ -225,7 +254,7 @@ async function finishSignIn(provider, flow, code) {
 function signedIn(provider, result) {
   view.flows.delete(provider.instanceId);
   provider.ready = !result.error;
-  view.message = result.error ? `Signed in, but models didn't load: ${result.error}` : `${provider.name || provider.provider} is ready.`;
+  report("extension", result.error ? `Signed in, but models didn't load: ${result.error}` : `${provider.name || provider.provider} is ready.`, !!result.error);
   if (result.state) view.state = result.state;
   ctx.refreshStatus().catch(() => {});
   render();
@@ -238,10 +267,10 @@ function routesSection(state) {
     el("p", { class: "sub", text: "A route tries models in order: if one is busy or fails, the next one answers." }));
   if (state.routes.length) box.append(el("ul", { class: "list" }, ...state.routes.map(route => el("li", {},
     el("span", { class: "grow" }, el("strong", { text: route.name }), el("span", { class: "mono quiet", text: ` ${route.targets.join(" → ")}` })),
-    state.defaultModel === route.name ? chip("default", "ok") : button("Use as default", { small: true, link: true, onClick: () => act("default", () => ctx.api("/api/models/default", "PUT", { selection: route.name })) }),
+    state.defaultModel === route.name ? chip("default", "ok") : button("Use as default", { small: true, link: true, onClick: () => act("routes", () => ctx.api("/api/models/default", "PUT", { selection: route.name })) }),
     button("Edit", { small: true, onClick: () => { view.route = { name: route.name, targets: [...route.targets], existing: true }; render(); } }),
-    button("Delete", { small: true, link: true, onClick: () => act("route", () => ctx.api(`/api/models/routes/${encodeURIComponent(route.name)}`, "DELETE")) })))));
-  if (!editor) { box.append(button("New route", { small: true, disabled: all.length < 1, onClick: () => { view.route = { name: "main", targets: [], existing: false }; render(); } })); return box; }
+    button("Delete", { small: true, link: true, onClick: () => act("routes", () => ctx.api(`/api/models/routes/${encodeURIComponent(route.name)}`, "DELETE")) })))));
+  if (!editor) { box.append(button("New route", { small: true, disabled: all.length < 1, onClick: () => { view.route = { name: "main", targets: [], existing: false }; render(); } }), status("routes") ?? ""); return box; }
   const name = el("input", { attrs: { value: editor.name, "aria-label": "Route name", pattern: "[a-z][a-z0-9_-]*" } });
   name.disabled = editor.existing;
   const add = el("select", { attrs: { "aria-label": "Add a model to the route" } }, el("option", { text: "Add a model…", attrs: { value: "" } }),
@@ -252,10 +281,10 @@ function routesSection(state) {
     button("Down", { small: true, link: true, disabled: index === editor.targets.length - 1, onClick: () => { [editor.targets[index + 1], editor.targets[index]] = [editor.targets[index], editor.targets[index + 1]]; render(); } }),
     button("Remove", { small: true, link: true, onClick: () => { editor.targets.splice(index, 1); render(); } }))));
   box.append(el("div", { class: "card" }, field("Route name (lowercase)", name), order, add,
-    el("div", { class: "row" }, button("Save route", { primary: true, disabled: !editor.targets.length, onClick: () => act("route", async () => {
+    el("div", { class: "row" }, button("Save route", { primary: true, disabled: !editor.targets.length, onClick: () => act("routes", async () => {
       const result = await ctx.api(`/api/models/routes/${encodeURIComponent(name.value.trim())}`, "PUT", { targets: editor.targets });
       view.route = null; return result;
-    }) }), button("Cancel", { small: true, link: true, onClick: () => { view.route = null; render(); } }))));
+    }) }), button("Cancel", { small: true, link: true, onClick: () => { view.route = null; render(); } }))), status("routes") ?? "");
   return box;
 }
 
@@ -264,8 +293,6 @@ function render() {
   const state = view.state;
   const body = [el("div", { class: "view-heading" }, el("h1", { text: "Models" }),
     el("p", { class: "sub", text: "Model connections are managed by Compa. Midden uses whatever you connect; if a model can't use tools, the assistant says so." }))];
-  if (view.busy) body.push(loading("Working..."));
-  if (view.message) body.push(el("p", { class: "status-message", text: view.message, attrs: { role: "status" } }));
   if (view.error) body.push(errorBox(view.error));
   if (!state) { body.push(view.error ? button("Retry", { onClick: () => reload() }) : loading("Loading model connections...")); root.replaceChildren(...body); return; }
   body.push(defaultSection(state));
@@ -278,5 +305,5 @@ function render() {
 export default {
   mount(element, context) { root = element; ctx = context; ctx.bus.on("workspace-changed", () => { view.state = null; }); },
   show() { render(); reload(); },
-  hide() { view.message = ""; },
+  hide() { view.message = ""; view.where = ""; view.failed = false; },
 };

@@ -3,6 +3,7 @@ import evidenceView from "/js/evidence.js";
 import sourcesView from "/js/sources.js";
 import modelsView from "/js/models.js";
 import { quoteCheck } from "/js/quote.js";
+import { markdown, renderMarkdown } from "/js/markdown.js";
 
 const $ = id => document.getElementById(id);
 const ROUTES = ["sessions", "evidence", "sources", "files", "assistant", "models"];
@@ -18,7 +19,7 @@ const state = { csrf: "", current: null, sessions: [], files: [], cache: new Map
   completed: new Set(), seq: 0, revision: 0, connected: false, sending: false, creating: false,
   canceling: false, interrupted: false, source: null, selectedFile: null, fileRequest: 0, filesRequest: 0, statusRequest: 0,
   workspaceId: "", scope: 0, booting: true, selectionMade: false, modelConfigured: false, modelSetupError: "", drafts: new Map(), visiblePermission: null,
-  status: null, context: [], contextOpen: false, stopped: false };
+  status: null, context: [], contextOpen: false, stopped: false, fileSource: false };
 const entry = (id = state.current) => {
   if (!state.cache.has(id)) state.cache.set(id, { messages: [], outcomes: [], activity: [], live: null, loaded: false, loading: false, request: 0 });
   return state.cache.get(id);
@@ -244,7 +245,8 @@ function message(role, content, at) {
   const article = node("article", `message ${role === "user" ? "user" : "assistant"}`);
   const header = node("header");
   header.append(node("strong", "", role === "user" ? "You" : role === "assistant" ? "Midden" : role), node("span", "", at ? date(at) : ""));
-  article.append(header, node("pre", "", content));
+  // The person's words show as typed; the assistant's replies are formatted.
+  article.append(header, role === "user" ? node("pre", "", content) : markdown(content));
   return article;
 }
 const nearBottom = () => $("chatScroll").scrollHeight - $("chatScroll").scrollTop - $("chatScroll").clientHeight < 90;
@@ -253,24 +255,36 @@ function renderLive() {
   const item = entry(), live = item.live, last = item.messages.at(-1), pinned = nearBottom();
   let element = $("liveMessage");
   if (!live?.text || (last?.role === "assistant" && last.content === live.text)) { element?.remove(); return; }
-  if (!element) { element = message("assistant", "", ""); element.id = "liveMessage"; $("messages").append(element); }
-  element.querySelector("pre").textContent = live.text;
+  if (!element) {
+    element = message("assistant", "", ""); element.id = "liveMessage";
+    // The reply belongs to the latest turn, so it goes before that turn's status.
+    let status = null;
+    for (let last = $("messages").lastElementChild; last?.classList.contains("turn-outcome"); last = last.previousElementSibling) status = last;
+    $("messages").insertBefore(element, status);
+  }
+  renderMarkdown(live.text, element.querySelector(".md"));
   $("welcome").hidden = true;
   if (pinned) scrollBottom();
 }
+function outcomeNote(outcome) {
+  const note = node("aside", "turn-outcome"); note.setAttribute("role", "note");
+  note.dataset.status = outcome.status;
+  note.append(node("strong", "", `Turn status: ${outcome.status[0].toUpperCase()}${outcome.status.slice(1)}`), node("small", "", date(outcome.at)));
+  if (outcome.error) note.append(node("p", "", outcome.error));
+  return note;
+}
 function renderChat() {
   const item = entry(), pinned = nearBottom(), hasMessages = !!item.messages.length || !!item.live?.text;
-  $("messages").replaceChildren(...item.messages.map((record, index) => {
-    const article = message(record.role, record.content, record.at);
-    for (const outcome of item.outcomes.filter(value => value.messageIndex === index && value.status !== "completed")) {
-      const evidence = node("aside", "turn-outcome"); evidence.setAttribute("role", "note");
-      evidence.dataset.status = outcome.status;
-      evidence.append(node("strong", "", `Turn status: ${outcome.status[0].toUpperCase()}${outcome.status.slice(1)}`), node("small", "", date(outcome.at)));
-      if (outcome.error) evidence.append(node("p", "", outcome.error));
-      article.append(evidence);
-    }
-    return article;
-  }));
+  // A turn's status is Midden's: it follows the turn's replies, before the
+  // person's next message.
+  const notes = new Map();
+  for (const outcome of item.outcomes.filter(value => value.status !== "completed")) {
+    let at = outcome.messageIndex + 1;
+    while (at < item.messages.length && item.messages[at].role !== "user") at++;
+    notes.set(at, [...(notes.get(at) || []), outcomeNote(outcome)]);
+  }
+  $("messages").replaceChildren(...item.messages.flatMap((record, index) => [...(notes.get(index) || []), message(record.role, record.content, record.at)]),
+    ...(notes.get(item.messages.length) || []));
   const uncoveredError = item.turnError && !item.outcomes.some(outcome => outcome.turnId === item.turnError.turnId);
   $("sessionError").hidden = !uncoveredError;
   $("sessionError").textContent = uncoveredError ? `Turn error: ${item.turnError.text}` : "";
@@ -651,6 +665,7 @@ async function selectFile(path) {
   if (route.name === "files") history.replaceState(null, "", `#/files/${encodeURIComponent(path)}`);
   $("fileEmpty").hidden = true; $("filePreview").hidden = false;
   $("fileName").textContent = path; $("fileContent").hidden = false; $("fileContent").textContent = "Loading file...";
+  $("fileMarkdown").hidden = true; $("fileMarkdown").replaceChildren(); $("toggleSource").hidden = true;
   $("fileFrame").hidden = true; $("fileFrame").removeAttribute("src"); $("fileHash").textContent = "";
   $("expandPreview").disabled = true; $("previewHint").textContent = "";
   const file = state.files.find(record => record.path === path);
@@ -660,23 +675,32 @@ async function selectFile(path) {
     if (version !== state.fileRequest) return;
     if (typeof data?.content !== "string") throw new Error("Midden did not return text content. You can still download this file.");
     $("fileContent").textContent = data.content; $("fileHash").textContent = data.sha256 || "Fingerprint not reported";
-    const html = /\.html?$/i.test(path) || file?.kind === "html";
+    const html = /\.html?$/i.test(path) || file?.kind === "html", formatted = !html && /\.(md|markdown)$/i.test(path);
     if (html) {
       const url = `/preview?path=${encodeURIComponent(path)}`;
       // Check for errors before letting an isolated frame render the artifact.
       await (await request(url)).arrayBuffer();
       if (version !== state.fileRequest) return;
       $("fileFrame").src = url; $("fileFrame").hidden = false; $("fileContent").hidden = true;
+    } else if (formatted) {
+      renderMarkdown(data.content, $("fileMarkdown")); $("toggleSource").hidden = false; showSource();
     }
-    $("previewHint").textContent = html ? "Sandboxed HTML. Inline scripts enabled; network blocked." : "Plain text preview. Nothing is executed.";
+    $("previewHint").textContent = html ? "Sandboxed HTML. Inline scripts enabled; network blocked." :
+      formatted ? "Formatted Markdown. Nothing is executed; links open in a new tab." : "Plain text preview. Nothing is executed.";
     $("expandPreview").disabled = false;
     if ($("previewDialog").open) updateExpandedPreview();
   } catch (reason) {
     if (version === state.fileRequest) {
       $("fileContent").textContent = "Preview unavailable. The original file can still be downloaded."; error(reason, "filesError");
+      $("fileContent").hidden = false; $("fileMarkdown").hidden = true; $("toggleSource").hidden = true;
       if ($("previewDialog").open) updateExpandedPreview();
     }
   }
+}
+// showSource shows a Markdown file formatted, or its source when asked.
+function showSource() {
+  $("fileMarkdown").hidden = state.fileSource; $("fileContent").hidden = !state.fileSource;
+  $("toggleSource").setAttribute("aria-pressed", String(state.fileSource));
 }
 async function download() {
   const path = state.selectedFile;
@@ -692,6 +716,7 @@ async function download() {
 function updateExpandedPreview() {
   $("previewTitle").textContent = state.selectedFile;
   $("expandedText").textContent = $("fileContent").textContent; $("expandedText").hidden = $("fileContent").hidden;
+  $("expandedMarkdown").replaceChildren(...$("fileMarkdown").cloneNode(true).childNodes); $("expandedMarkdown").hidden = $("fileMarkdown").hidden;
   $("expandedFrame").hidden = $("fileFrame").hidden;
   if (!$("fileFrame").hidden) $("expandedFrame").src = $("fileFrame").src;
   else $("expandedFrame").removeAttribute("src");
@@ -789,6 +814,7 @@ $("dismissNotice").addEventListener("click", () => clearError("notice"));
 $("setupModel").addEventListener("click", () => ctx.navigate("#/models"));
 $("contextPreviewToggle").addEventListener("click", () => { state.contextOpen = !state.contextOpen; renderContext(); });
 $("expandPreview").addEventListener("click", expandPreview);
+$("toggleSource").addEventListener("click", () => { state.fileSource = !state.fileSource; showSource(); if ($("previewDialog").open) updateExpandedPreview(); });
 $("closePreview").addEventListener("click", () => $("previewDialog").close());
 $("previewDialog").addEventListener("close", () => $("expandedFrame").removeAttribute("src"));
 $("downloadFile").addEventListener("click", () => run(download, "filesError"));
