@@ -854,6 +854,17 @@ class FrontendTests(BrowserCase):
         expect(self.page.locator("#sessionList button")).to_have_count(1)
         expect(self.page.locator("#sessionTitle")).to_have_text("Earlier conversation")
 
+    def test_a_reply_the_assistant_gives_on_its_own_shows_in_its_conversation(self):
+        self.open()
+        expect(self.page.locator("#sessionTitle")).to_have_text("Research notes")
+        self.host.sessions["s1"]["messages"].append(
+            dict(role="assistant", content="Your **weekly** digest is ready.", at="2026-01-01T12:05:00Z"))
+        with self.api_response("GET", "/api/sessions/s1"):
+            self.host.emit("reply", sessionId="s1", turnId="")
+        expect(self.page.locator("#messages .assistant .md strong")).to_have_text("weekly")
+        expect(self.page.locator("#announcement")).to_have_text("New reply from Midden.")
+        expect(self.page.locator("#notice")).to_be_hidden()
+
     def test_markdown_renders_its_constructs_as_text_and_safe_links(self):
         self.open()
         cases = [

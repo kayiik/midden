@@ -153,6 +153,61 @@ func TestChatTurnStreamsTheReplyAndEndsOnTheKernelsWord(t *testing.T) {
 	}
 }
 
+// What the turn's message and send_file calls showed stays in its reply, in
+// order; a message sent to another chat, or a call that failed, doesn't.
+func TestATurnKeepsWhatItsToolsSentIntoTheConversation(t *testing.T) {
+	app, chat, gateway := chatApp(t)
+	events := watchEvents(app)
+	s, _ := app.NewSession("notes")
+	turnID, err := app.StartTurn(s.ID, "write it up")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFrame(t, gateway)
+	chatID := "web:" + s.ID
+	call := func(tool string, arguments map[string]any, failed bool) {
+		chat.kernelEvent(kernelEvent{Kind: "agent.tool.exec_start", ChatID: chatID, MessageID: turnID,
+			Payload: map[string]any{"Tool": tool, "Arguments": arguments}})
+		chat.kernelEvent(kernelEvent{Kind: "agent.tool.exec_end", ChatID: chatID, MessageID: turnID,
+			Payload: map[string]any{"Tool": tool, "IsError": failed}})
+	}
+	call("message", map[string]any{"content": "Reading the sessions first."}, false)
+	call("message", map[string]any{"content": "To another chat.", "chat_id": "elsewhere"}, false)
+	call("message", map[string]any{"content": "A message that failed."}, true)
+	call("send_file", map[string]any{"path": "files/notes/summary.md"}, false)
+	chat.kernelEvent(kernelEvent{Kind: "agent.turn.end", ChatID: chatID, MessageID: turnID,
+		Payload: map[string]any{"Status": "completed", "FinalContent": "The summary is ready."}})
+	waitEvent(t, events, func(e Event) bool { return e.Type == "turn_done" })
+	session, _ := app.Session(s.ID)
+	want := "Reading the sessions first.\n\nSent file: files/notes/summary.md\n\nThe summary is ready."
+	if got := session.Messages[len(session.Messages)-1].Content; got != want {
+		t.Fatalf("reply = %q, want %q", got, want)
+	}
+}
+
+// A turn the kernel runs on its own in a conversation, such as a scheduled
+// task's, adds its reply there; other chats and unfinished turns add nothing.
+func TestARepliesTheKernelGivesOnItsOwnJoinTheirConversation(t *testing.T) {
+	app, chat, _ := chatApp(t)
+	events := watchEvents(app)
+	s, _ := app.NewSession("reminders")
+	end := func(chatID, status, final string) {
+		chat.kernelEvent(kernelEvent{Kind: "agent.turn.end", ChatID: chatID, MessageID: "scheduled-" + randomID(),
+			Payload: map[string]any{"Status": status, "FinalContent": final}})
+	}
+	end("web:unknown-conversation", "completed", "Not ours.")
+	end("telegram:"+s.ID, "completed", "Another channel.")
+	end("web:"+s.ID, "aborted", "Stopped.")
+	end("web:"+s.ID, "completed", "  ")
+	end("web:"+s.ID, "completed", "Your weekly digest is in files/digest.md.")
+	reply := waitEvent(t, events, func(e Event) bool { return e.Type == "reply" })
+	session, _ := app.Session(s.ID)
+	if reply.SessionID != s.ID || len(session.Messages) != 1 || session.Messages[0].Role != "assistant" ||
+		session.Messages[0].Content != "Your weekly digest is in files/digest.md." {
+		t.Fatalf("reply %+v, conversation %+v", reply, session.Messages)
+	}
+}
+
 func TestStoppingATurnSendsStopAndWaitsForTheAbort(t *testing.T) {
 	app, chat, gateway := chatApp(t)
 	events := watchEvents(app)

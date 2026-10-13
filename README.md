@@ -3,7 +3,9 @@
 Midden reads the AI sessions already recorded on your computer by Claude
 Code, GitHub Copilot CLI and OpenCode, and helps you turn that work into
 findings, articles, tutorials, presentations and longer pieces that point
-back to the records they came from.
+back to the records they came from. It is tested with sessions from Claude
+Code 2.1.233 to 2.1.272, Copilot CLI 1.0.63 to 1.0.96 and OpenCode 1.17.11
+to 1.19.0 ([supported versions](docs/core.md#supported-versions)).
 
 It has three parts, installed together or separately by one installer:
 

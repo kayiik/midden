@@ -20,7 +20,9 @@ import (
 // kernelChat runs the App's turns on the kernel. Each turn opens the
 // conversation's web chat socket, sends the message with the turn's id, and
 // streams the reply from the socket. The turn's end, its tool calls and the
-// approvals it asks for come through the hook, scoped by that id.
+// approvals it asks for come through the hook, scoped by that id. A turn the
+// kernel runs on its own in one of the App's conversations, such as a
+// scheduled task's, comes through the hook too, and its reply is kept.
 type kernelChat struct {
 	app    *App
 	kernel *kernelProcess
@@ -35,8 +37,43 @@ type chatTurn struct {
 	ended             chan turnOutcome
 	stopping          atomic.Bool
 
-	mu    sync.Mutex
-	calls map[string][]string // tool -> ids of its calls that have not ended
+	mu      sync.Mutex
+	calls   map[string][]string // tool -> ids of its calls that have not ended
+	pending map[string]string   // call id -> what the call shows in the conversation once it succeeds
+	notes   []string            // what the turn's message and send_file calls showed, in order
+}
+
+// toolNote is what a tool call shows the person in the conversation: a message
+// the assistant sent into it, or a file it sent. A message sent to another
+// chat shows nothing here.
+func toolNote(tool string, arguments any) string {
+	args, _ := arguments.(map[string]any)
+	text := func(key string) string { value, _ := args[key].(string); return strings.TrimSpace(value) }
+	switch tool {
+	case "message":
+		if text("channel") == "" && text("chat_id") == "" {
+			return text("content")
+		}
+	case "send_file":
+		if path := text("path"); path != "" {
+			return "Sent file: " + path
+		}
+	}
+	return ""
+}
+
+// withNotes puts what the turn's tool calls showed before its final reply.
+func (t *chatTurn) withNotes(final string, err error) (string, error) {
+	if err != nil {
+		return final, err
+	}
+	t.mu.Lock()
+	parts := append([]string{}, t.notes...)
+	t.mu.Unlock()
+	if strings.TrimSpace(final) != "" {
+		parts = append(parts, final)
+	}
+	return strings.Join(parts, "\n\n"), nil
 }
 
 // turnOutcome is how the kernel says a turn ended.
@@ -82,7 +119,7 @@ func (c *kernelChat) Process(ctx context.Context, sessionID, turnID, text string
 	port, token, exited := c.kernel.endpoint()
 	turnCtx, endTurn := context.WithCancel(context.Background())
 	defer endTurn()
-	turn := &chatTurn{sessionID: sessionID, turnID: turnID, ctx: turnCtx, ended: make(chan turnOutcome, 1), calls: map[string][]string{}}
+	turn := &chatTurn{sessionID: sessionID, turnID: turnID, ctx: turnCtx, ended: make(chan turnOutcome, 1), calls: map[string][]string{}, pending: map[string]string{}}
 	c.mu.Lock()
 	c.turns[turnID] = turn
 	c.mu.Unlock()
@@ -113,14 +150,14 @@ func (c *kernelChat) Process(ctx context.Context, sessionID, turnID, text string
 	}
 	select {
 	case outcome := <-turn.ended:
-		return outcome.result()
+		return turn.withNotes(outcome.result())
 	case <-exited:
 		return "", errors.New("the assistant stopped unexpectedly; it restarts by itself, so try again in a moment")
 	case err := <-lost:
 		// The hook may still report the end the socket did not show.
 		select {
 		case outcome := <-turn.ended:
-			return outcome.result()
+			return turn.withNotes(outcome.result())
 		case <-ctx.Done():
 			return "", ctx.Err()
 		case <-time.After(5 * time.Second):
@@ -189,6 +226,9 @@ func (c *kernelChat) turn(chatID, messageID string) *chatTurn {
 func (c *kernelChat) kernelEvent(event kernelEvent) {
 	turn := c.turn(event.ChatID, event.MessageID)
 	if turn == nil {
+		if event.Kind == "agent.turn.end" {
+			c.reply(event)
+		}
 		return
 	}
 	text := func(key string) string { value, _ := event.Payload[key].(string); return value }
@@ -200,18 +240,28 @@ func (c *kernelChat) kernelEvent(event kernelEvent) {
 		id := randomID()
 		turn.mu.Lock()
 		turn.calls[tool] = append(turn.calls[tool], id)
+		if note := toolNote(tool, event.Payload["Arguments"]); note != "" {
+			turn.pending[id] = note
+		}
 		turn.mu.Unlock()
 		c.app.emit(Event{Type: "tool", SessionID: turn.sessionID, TurnID: turn.turnID, Tool: tool,
 			Arguments: event.Payload["Arguments"], Status: "pending", CallID: id})
 	case "agent.tool.exec_end":
+		failed, _ := event.Payload["IsError"].(bool)
 		turn.mu.Lock()
 		id := ""
 		if open := turn.calls[tool]; len(open) > 0 {
 			id, turn.calls[tool] = open[0], open[1:]
 		}
+		if note, ok := turn.pending[id]; ok {
+			delete(turn.pending, id)
+			if !failed {
+				turn.notes = append(turn.notes, note)
+			}
+		}
 		turn.mu.Unlock()
 		status, verb := "completed", "Finished"
-		if failed, _ := event.Payload["IsError"].(bool); failed {
+		if failed {
 			status, verb = "failed", "Failed"
 		}
 		seconds, _ := event.Payload["Duration"].(float64)
@@ -220,6 +270,19 @@ func (c *kernelChat) kernelEvent(event kernelEvent) {
 	case "agent.tool.exec_skipped":
 		c.app.emit(Event{Type: "tool", SessionID: turn.sessionID, TurnID: turn.turnID, Tool: tool, Status: "failed",
 			CallID: randomID(), Result: text("Reason")})
+	}
+}
+
+// reply keeps a turn the kernel ran on its own in one of the App's
+// conversations, such as a scheduled task's or a background helper's report:
+// its reply joins the conversation. Turns of other chats, and turns that
+// didn't complete with a reply, are left alone.
+func (c *kernelChat) reply(event kernelEvent) {
+	id, ok := strings.CutPrefix(event.ChatID, "web:")
+	status, _ := event.Payload["Status"].(string)
+	final, _ := event.Payload["FinalContent"].(string)
+	if ok && status == "completed" && strings.TrimSpace(final) != "" {
+		c.app.addReply(id, final)
 	}
 }
 

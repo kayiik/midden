@@ -211,9 +211,16 @@ func (a *App) Close() {
 func (a *App) Status() map[string]any {
 	model := a.storedModelStatus()
 	kernel := map[string]string{"state": "missing", "error": "compa-kernel is not installed with this App"}
+	kernelVersion := a.opts.KernelVersion
 	if a.kernel != nil {
 		state, failure := a.kernel.status()
 		kernel = map[string]string{"state": state, "error": failure}
+		if reported := a.kernel.reportedVersion(); reported != "" {
+			kernelVersion = reported
+		}
+	} else if a.opts.Kernel != "" {
+		// It is installed but could not be started; the App's notice says why.
+		kernel = map[string]string{"state": "failed", "error": ""}
 	}
 	notices := []string{sandboxNotice}
 	if a.notice != "" {
@@ -230,7 +237,7 @@ func (a *App) Status() map[string]any {
 	}
 	identity := sha256.Sum256([]byte(a.paths.Files))
 	return map[string]any{"workspace": a.paths.Files, "workspaceId": hex.EncodeToString(identity[:]), "uiVersion": version,
-		"coreVersion": a.opts.CoreVersion, "kernelName": "Compa", "kernelVersion": a.opts.KernelVersion, "kernel": kernel,
+		"coreVersion": a.opts.CoreVersion, "kernelName": "Compa", "kernelVersion": kernelVersion, "kernel": kernel,
 		"skills": a.skills, "model": model, "activeTurn": active, "csrfToken": a.csrf, "notice": strings.Join(notices, " ")}
 }
 func (a *App) NewSession(title string) (Session, error) {
@@ -436,6 +443,28 @@ func (a *App) StartTurn(id, text string) (string, error) {
 		a.emit(Event{Type: "turn_done", SessionID: id, TurnID: turn.ID})
 	}()
 	return turn.ID, nil
+}
+
+// addReply adds a reply the assistant gave outside the person's turns, such
+// as a scheduled task's, to the conversation it belongs to, and tells the page.
+func (a *App) addReply(id, text string) {
+	a.mu.Lock()
+	s, ok := a.sessions[id]
+	if !ok {
+		a.mu.Unlock()
+		return
+	}
+	now, updated := time.Now().UTC(), s.Updated
+	s.Messages = append(s.Messages, Message{Role: "assistant", Content: text, At: now})
+	s.Updated = now
+	err := a.saveSessionsLocked()
+	if err != nil {
+		s.Messages, s.Updated = s.Messages[:len(s.Messages)-1], updated
+	}
+	a.mu.Unlock()
+	if err == nil {
+		a.emit(Event{Type: "reply", SessionID: id})
+	}
 }
 func (a *App) Cancel(id string) error {
 	a.mu.Lock()
