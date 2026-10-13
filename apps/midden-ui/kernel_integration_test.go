@@ -139,6 +139,9 @@ func TestTheAppDrivesTheRealKernel(t *testing.T) {
 	if err := kernel.waitReady(ctx); err != nil {
 		t.Fatal(err)
 	}
+	if reported := kernel.reportedVersion(); reported != "0.0.1" {
+		t.Fatalf("the kernel's pid file names version %q", reported)
+	}
 	events := watchEvents(app)
 
 	s, _ := app.NewSession("real kernel")

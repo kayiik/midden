@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -286,5 +287,26 @@ func TestKernelVersionIsReadFromItsOutput(t *testing.T) {
 		if err != nil || version != "0.0.1" {
 			t.Fatalf("version = %q %v", version, err)
 		}
+	}
+}
+
+// An installed kernel that can't run is reported as failed, with the reason,
+// never as missing; a version check it doesn't answer doesn't stop its start.
+func TestAnInstalledKernelThatCannotRunIsReportedAsFailed(t *testing.T) {
+	app := newTestApp(t)
+	broken := filepath.Join(t.TempDir(), executableName("compa-kernel"))
+	writeTestFile(t, broken, "not a program")
+	app.opts.Kernel = broken
+	if err := startKernel(app, os.Args[0]); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), kernelStartTimeout)
+	defer cancel()
+	if err := app.kernel.waitReady(ctx); err == nil {
+		t.Fatal("a file that is not a program started")
+	}
+	kernel, _ := app.Status()["kernel"].(map[string]string)
+	if kernel["state"] != "failed" || !strings.Contains(kernel["error"], "start compa-kernel") {
+		t.Fatalf("kernel status = %v", kernel)
 	}
 }

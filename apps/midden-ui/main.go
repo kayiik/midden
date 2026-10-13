@@ -156,8 +156,11 @@ func runArgs(args []string, output io.Writer) error {
 		server.Shutdown(shutdown)
 	}()
 	kernel := "not installed"
-	if app.opts.KernelVersion != "" {
+	switch {
+	case app.opts.KernelVersion != "":
 		kernel = app.opts.KernelVersion
+	case app.opts.Kernel != "":
+		kernel = "(version not known yet)"
 	}
 	fmt.Fprintf(output, "Midden App %s: %s\nYour files: %s\nPowered by Compa %s\n", version, address, app.paths.Files, kernel)
 	if !*noOpen {
@@ -174,13 +177,14 @@ func runArgs(args []string, output io.Writer) error {
 	return err
 }
 
-// startKernel starts the App's compa-kernel in the background.
+// startKernel starts the App's compa-kernel in the background. The version
+// check only names the kernel early: a kernel that doesn't answer it still
+// starts, and once it runs its pid file names it. A kernel that can't run says
+// why in the App's status, and the supervisor tries it again.
 func startKernel(app *App, executable string) error {
-	kernelVersion, err := probeKernelVersion(app.opts.Kernel, app.paths.Kernel)
-	if err != nil {
-		return err
+	if kernelVersion, err := probeKernelVersion(app.opts.Kernel, app.paths.Kernel); err == nil {
+		app.opts.KernelVersion = kernelVersion
 	}
-	app.opts.KernelVersion = kernelVersion
 	kernel, err := newKernelProcess(app.kernelSetup(executable))
 	if err != nil {
 		return err

@@ -97,6 +97,7 @@ type kernelProcess struct {
 	port            int
 	webToken        string
 	pidToken        string
+	version         string // the release the running kernel wrote in its pid file
 	approvalTimeout time.Duration
 	stopping        bool
 	crashes         []time.Time
@@ -178,26 +179,26 @@ func (k *kernelProcess) launch() error {
 		close(exited)
 		k.exitedOnItsOwn(cmd, err)
 	}()
-	pidToken, err := k.waitStarted(cmd, port, exited)
+	pid, err := k.waitStarted(cmd, port, exited)
 	if err != nil {
 		_ = cmd.Process.Kill()
 		return err
 	}
 	k.mu.Lock()
-	k.pidToken = pidToken
+	k.pidToken, k.version = pid.Token, strings.TrimPrefix(pid.Version, "v")
 	k.mu.Unlock()
 	return nil
 }
 
 // waitStarted waits until the kernel has written its pid file and answers
-// ready, and returns the token of its control endpoints.
-func (k *kernelProcess) waitStarted(cmd *exec.Cmd, port int, exited chan struct{}) (string, error) {
+// ready, and returns the pid file.
+func (k *kernelProcess) waitStarted(cmd *exec.Cmd, port int, exited chan struct{}) (kernelPid, error) {
 	deadline := time.Now().Add(kernelStartTimeout)
 	client := &http.Client{Timeout: 2 * time.Second}
 	for time.Now().Before(deadline) {
 		select {
 		case <-exited:
-			return "", fmt.Errorf("compa-kernel stopped while starting: %s", logTail(k.setup.Log))
+			return kernelPid{}, fmt.Errorf("compa-kernel stopped while starting: %s", logTail(k.setup.Log))
 		case <-time.After(150 * time.Millisecond):
 		}
 		pid, err := readKernelPid(k.setup.Home)
@@ -207,11 +208,11 @@ func (k *kernelProcess) waitStarted(cmd *exec.Cmd, port int, exited chan struct{
 		if response, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/ready", port)); err == nil {
 			response.Body.Close()
 			if response.StatusCode == http.StatusOK {
-				return pid.Token, nil
+				return pid, nil
 			}
 		}
 	}
-	return "", fmt.Errorf("compa-kernel did not become ready in %s: %s", kernelStartTimeout, logTail(k.setup.Log))
+	return kernelPid{}, fmt.Errorf("compa-kernel did not become ready in %s: %s", kernelStartTimeout, logTail(k.setup.Log))
 }
 
 // exitedOnItsOwn records a kernel that stopped without being asked, and
@@ -316,6 +317,13 @@ func (k *kernelProcess) status() (string, string) {
 		return k.state, k.failure.Error()
 	}
 	return k.state, ""
+}
+
+// reportedVersion is the release the kernel last started reported, or "".
+func (k *kernelProcess) reportedVersion() string {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return k.version
 }
 
 // reload makes the kernel read its settings again. A kernel that failed is
@@ -431,13 +439,14 @@ func (k *kernelProcess) serveRelay(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// kernelPid is the kernel's pid file: its process, and the token and
-// address of its control endpoints.
+// kernelPid is the kernel's pid file: its process, its version, and the token
+// and address of its control endpoints.
 type kernelPid struct {
-	PID   int    `json:"pid"`
-	Token string `json:"token"`
-	Port  int    `json:"port"`
-	Host  string `json:"host"`
+	PID     int    `json:"pid"`
+	Version string `json:"version"`
+	Token   string `json:"token"`
+	Port    int    `json:"port"`
+	Host    string `json:"host"`
 }
 
 func readKernelPid(home string) (kernelPid, error) {
@@ -626,7 +635,7 @@ func readOnlyPattern(dir string) string {
 
 // probeKernelVersion is the release a compa-kernel reports, such as "0.0.1".
 func probeKernelVersion(executable, home string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, executable, "version")
 	command.Env = kernelCommandEnv(home)
