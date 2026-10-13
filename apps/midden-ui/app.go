@@ -444,6 +444,28 @@ func (a *App) StartTurn(id, text string) (string, error) {
 	}()
 	return turn.ID, nil
 }
+
+// addReply adds a reply the assistant gave outside the person's turns, such
+// as a scheduled task's, to the conversation it belongs to, and tells the page.
+func (a *App) addReply(id, text string) {
+	a.mu.Lock()
+	s, ok := a.sessions[id]
+	if !ok {
+		a.mu.Unlock()
+		return
+	}
+	now, updated := time.Now().UTC(), s.Updated
+	s.Messages = append(s.Messages, Message{Role: "assistant", Content: text, At: now})
+	s.Updated = now
+	err := a.saveSessionsLocked()
+	if err != nil {
+		s.Messages, s.Updated = s.Messages[:len(s.Messages)-1], updated
+	}
+	a.mu.Unlock()
+	if err == nil {
+		a.emit(Event{Type: "reply", SessionID: id})
+	}
+}
 func (a *App) Cancel(id string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()

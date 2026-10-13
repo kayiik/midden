@@ -571,7 +571,32 @@ func applyKernelSettings(cfg *kernelConfig, setup kernelSetup, relayURL, relaySe
 			timeout = time.Duration(defaults.ApprovalTimeoutMS) * time.Millisecond
 		}
 	}
-	return timeout, cfg.setRawObject("hooks", hooks)
+	if err := cfg.setRawObject("hooks", hooks); err != nil {
+		return 0, err
+	}
+	return timeout, keepMessagesInTheirChat(cfg)
+}
+
+// keepMessagesInTheirChat lets the message tool post only into the
+// conversation it was asked in, since the App shows each conversation on its
+// own, unless the person chose otherwise.
+func keepMessagesInTheirChat(cfg *kernelConfig) error {
+	tools, err := cfg.rawObject("tools")
+	if err != nil {
+		return err
+	}
+	message := map[string]json.RawMessage{}
+	if raw, ok := tools["message"]; ok && string(bytes.TrimSpace(raw)) != "null" {
+		if err := decodeJSON(raw, &message); err != nil || message == nil {
+			return errors.New("config.json tools.message is not an object")
+		}
+	}
+	if _, chosen := message["targets"]; chosen {
+		return nil
+	}
+	message["targets"] = json.RawMessage(`"current_chat"`)
+	tools["message"], _ = json.Marshal(message)
+	return cfg.setRawObject("tools", tools)
 }
 
 // kernelEnv is the kernel's environment: the person's, without settings for

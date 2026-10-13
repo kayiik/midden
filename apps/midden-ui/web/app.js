@@ -561,6 +561,12 @@ function receive(event) {
     });
     return;
   }
+  if (event.type === "reply") {
+    // A reply the assistant gave on its own, such as a scheduled task's.
+    run(() => loadSession(event.sessionId)); run(loadSessions);
+    if (event.sessionId === state.current) $("announcement").textContent = "New reply from Midden.";
+    return;
+  }
   if (state.completed.has(event.turnId) && event.type !== "permission_result") return;
   if (!event.sessionId || !event.turnId) {
     if (event.type === "error") { error(event.error || event.text || "Midden error."); return; }

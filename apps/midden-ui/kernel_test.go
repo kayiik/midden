@@ -227,7 +227,7 @@ func TestKernelHookDeniesWhenMiddenIsUnreachable(t *testing.T) {
 	}
 }
 
-func TestKernelSettingsAddOnlyTheWebChatAndTheHook(t *testing.T) {
+func TestKernelSettingsAddOnlyTheWebChatTheHookAndTheMessageTarget(t *testing.T) {
 	home := t.TempDir()
 	original := `{"channel_list":{"telegram":{"enabled":true,"type":"telegram"},"web":{"enabled":false,"type":"web"}},
 "hooks":{"enabled":false,"defaults":{"approval_timeout_ms":300000},"processes":{"theirs":{"enabled":true,"command":["x"],"observe":["*"]}}},
@@ -273,8 +273,32 @@ func TestKernelSettingsAddOnlyTheWebChatAndTheHook(t *testing.T) {
 	if saved.Tools["exec"] == nil || saved.Agents["defaults"] == nil {
 		t.Fatal("settings Midden does not own changed")
 	}
+	if message, _ := saved.Tools["message"].(map[string]any); message["targets"] != "current_chat" {
+		t.Fatalf("message tool = %v, want it kept to the current chat", saved.Tools["message"])
+	}
 	if strings.Contains(string(raw), "token") {
 		t.Fatal("the web chat token was written to config.json")
+	}
+	// A choice the person made stays.
+	cfg, err := loadKernelConfig(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.other["tools"] = json.RawMessage(`{"message":{"targets":"any"}}`)
+	if err := saveKernelConfig(home, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := prepareKernelSettings(setup, "http://127.0.0.1:5/relay", "relay-secret"); err != nil {
+		t.Fatal(err)
+	}
+	var chosen struct {
+		Tools struct {
+			Message map[string]any `json:"message"`
+		} `json:"tools"`
+	}
+	raw, _ = os.ReadFile(kernelConfigPath(home))
+	if err := json.Unmarshal(raw, &chosen); err != nil || chosen.Tools.Message["targets"] != "any" {
+		t.Fatalf("the person's message targets were replaced: %s", raw)
 	}
 }
 
