@@ -117,6 +117,12 @@ Your messages show as you typed them. The assistant's replies are formatted:
 headings, lists, tables, code and links, which open in a new tab. A turn that
 fails, is stopped or is interrupted says so after the reply.
 
+Messages and files the assistant sends during a turn show in its reply. A
+reply it gives later on its own, such as a reminder it scheduled or a
+background task's report, appears in its conversation while Midden runs. It
+posts only into the conversation it was asked in, unless you set
+`tools.message.targets` in `kernel/config.json` to `any`.
+
 One turn runs at a time across the App. **Stop** cancels the turn; files it
 already wrote stay. **Tool activity** lists the tools the assistant used in
 the turn and any approval it is waiting for.

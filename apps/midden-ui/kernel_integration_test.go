@@ -68,16 +68,30 @@ func kernelModel(t *testing.T) (server *httptest.Server, system func() string) {
 		}
 		message := map[string]any{"role": "assistant", "content": "Plain answer."}
 		finish := "stop"
-		if _, path, ok := strings.Cut(user, "READ:"); ok && len(results) == 0 && len(request.Tools) > 0 {
-			arguments, _ := json.Marshal(map[string]string{"path": strings.TrimSpace(path)})
-			message = map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{"id": "call-read", "type": "function", "index": 0,
-				"function": map[string]any{"name": "read_file", "arguments": string(arguments)}}}}
+		toolCall := func(id, name string, arguments map[string]any) {
+			raw, _ := json.Marshal(arguments)
+			message = map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{"id": id, "type": "function", "index": 0,
+				"function": map[string]any{"name": name, "arguments": string(raw)}}}}
 			finish = "tool_calls"
-		} else if strings.Contains(user, "tool") && len(results) == 0 && len(request.Tools) > 0 {
-			message = map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{"id": "call-1", "type": "function", "index": 0,
-				"function": map[string]any{"name": "exec", "arguments": `{"action":"run","command":"echo kernel-check"}`}}}}
-			finish = "tool_calls"
-		} else if len(results) > 0 {
+		}
+		asks := len(results) == 0 && len(request.Tools) > 0
+		_, path, reads := strings.Cut(user, "READ:")
+		switch {
+		case strings.Contains(user, "LATER-REMINDER"):
+			message["content"] = "Reminder done."
+		case strings.Contains(user, "NOTE") && asks:
+			toolCall("call-note", "message", map[string]any{"content": "Working on it."})
+		case strings.Contains(user, "NOTE"):
+			message["content"] = "Noted and done."
+		case strings.Contains(user, "LATER") && asks:
+			toolCall("call-cron", "cron", map[string]any{"action": "add", "at_seconds": 2, "message": "LATER-REMINDER"})
+		case strings.Contains(user, "LATER"):
+			message["content"] = "Scheduled."
+		case reads && asks:
+			toolCall("call-read", "read_file", map[string]any{"path": strings.TrimSpace(path)})
+		case strings.Contains(user, "tool") && asks:
+			toolCall("call-1", "exec", map[string]any{"action": "run", "command": "echo kernel-check"})
+		case len(results) > 0:
 			message["content"] = "Tool said: " + strings.TrimSpace(results[0])
 		}
 		choice := map[string]any{"index": 0, "finish_reason": finish}
@@ -139,6 +153,9 @@ func TestTheAppDrivesTheRealKernel(t *testing.T) {
 	if err := kernel.waitReady(ctx); err != nil {
 		t.Fatal(err)
 	}
+	if reported := kernel.reportedVersion(); reported != "0.0.1" {
+		t.Fatalf("the kernel's pid file names version %q", reported)
+	}
 	events := watchEvents(app)
 
 	s, _ := app.NewSession("real kernel")
@@ -194,6 +211,10 @@ func TestTheAppDrivesTheRealKernel(t *testing.T) {
 	if session, _ = app.Session(s.ID); session.Outcomes[2].Status != "completed" || session.Messages[len(session.Messages)-1].Content != "Plain answer." {
 		t.Fatalf("turn after reload = %+v", session.Outcomes[2])
 	}
+	// Stopping a turn left no reply of its own behind.
+	if len(session.Messages) != 5 {
+		t.Fatalf("messages after the stopped turn = %+v", session.Messages)
+	}
 	// The agent requires tools: a model that refuses them fails the turn
 	// instead of answering without them.
 	if _, err := app.StartTurn(s.ID, "TEXTONLY question"); err != nil {
@@ -222,6 +243,32 @@ func TestTheAppDrivesTheRealKernel(t *testing.T) {
 	}
 	if text := readTestFile(t, filepath.Join(app.paths.Workspace, "AGENT.md")); !strings.Contains(text, "name: Midden") {
 		t.Fatal("the kernel's workspace lacks Midden's instructions")
+	}
+	// What the message tool sends during a turn stays in the turn's reply.
+	if _, err := app.StartTurn(s.ID, "please NOTE this"); err != nil {
+		t.Fatal(err)
+	}
+	waitEvent(t, events, func(e Event) bool { return e.Type == "turn_done" })
+	if session, _ = app.Session(s.ID); session.Messages[len(session.Messages)-1].Content != "Working on it.\n\nNoted and done." {
+		t.Fatalf("reply with a note = %q", session.Messages[len(session.Messages)-1].Content)
+	}
+	// A reply the kernel gives later on its own, here a scheduled task's,
+	// joins the conversation.
+	if _, err := app.StartTurn(s.ID, "remind me LATER"); err != nil {
+		t.Fatal(err)
+	}
+	waitEvent(t, events, func(e Event) bool { return e.Type == "turn_done" })
+	deadline := time.After(30 * time.Second)
+	for later := false; !later; {
+		select {
+		case e := <-events:
+			later = e.Type == "reply" && e.SessionID == s.ID
+		case <-deadline:
+			t.Fatal("the scheduled task's reply did not reach the conversation")
+		}
+	}
+	if session, _ = app.Session(s.ID); session.Messages[len(session.Messages)-1].Content != "Reminder done." {
+		t.Fatalf("scheduled reply = %q", session.Messages[len(session.Messages)-1].Content)
 	}
 	// Deleting the conversation removes the record the real kernel kept of it.
 	chatRecords := func() []string {

@@ -24,6 +24,22 @@ come before or after other arguments. `midden version` prints the version.
 same on every system. A store that doesn't exist is skipped. Once you set
 any of the three variables, Midden reads only the stores you set.
 
+### Supported versions
+
+Each release states the versions of each agent whose sessions it was tested
+with:
+
+| Agent | Versions |
+|---|---|
+| Claude Code | 2.1.233 to 2.1.272 |
+| GitHub Copilot CLI | 1.0.63 to 1.0.96 |
+| OpenCode | 1.17.11 to 1.19.0 |
+
+Midden read every session these versions wrote on the maintainer's computer
+(2,444 sessions, 5.9 GB of transcripts) without a failure. Sessions from
+other versions usually read too, but are untested; if one doesn't, report
+it with the agent's version. See [Testing](testing.md#supported-harness-versions).
+
 ## Commands
 
 ### Discover and measure

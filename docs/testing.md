@@ -117,9 +117,11 @@ changed one.
 - Correctness and integration: the suites above run in CI. The App's tests
   run the pinned kernel with a scripted model.
 - Acceptance: the web tests drive the page with Playwright against a mock
-  server, in Chromium only, and take about 5 minutes for 52 tests
+  server, in Chromium only, and take 1 to 5 minutes for 58 tests, depending
+  on how busy the machine is
   ([#4](https://github.com/kayiik/midden/issues/4)).
-- Not yet: stated harness versions
-  ([#1](https://github.com/kayiik/midden/issues/1)), live rounds, the UI
-  checks above, and showing what the kernel sends outside a turn
-  ([#2](https://github.com/kayiik/midden/issues/2)).
+- Harness versions: stated in [Supported versions](core.md#supported-versions),
+  from real sessions rather than synthetic ones. Core doesn't yet say when a
+  session comes from a version outside them
+  ([#1](https://github.com/kayiik/midden/issues/1)).
+- Not yet: live rounds and the UI checks above.
